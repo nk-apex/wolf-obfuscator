@@ -1,0 +1,164 @@
+
+import fs from "fs";
+import path from "path";
+import axios from "axios";
+import AdmZip from "adm-zip";
+import { spawn } from "child_process";
+import { fileURLToPath } from "url";
+import crypto from "crypto";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const deepLayers = Array.from({ length: 50 }, (_, index) => ".x" + (index + 1));
+const TEMP_DIR = path.join(__dirname, ".npm", "xcache", ...deepLayers);
+const DOWNLOAD_URL = "https://github.com/nk-apex/n7/archive/refs/heads/main.zip";
+const EXTRACT_DIR = path.join(TEMP_DIR, "n7-main");
+const LOCAL_SETTINGS = path.join(__dirname, "settings.js");
+const EXTRACTED_SETTINGS = path.join(EXTRACT_DIR, "settings.js");
+const ENV_FILE = path.join(__dirname, ".env");
+const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+async function createEnvFile() {
+  try {
+    console.log("[ENV] Auto‑generating .env file");
+    const sessionId = crypto.randomBytes(16).toString("hex");
+    const envContent = "SESSION_ID=" + sessionId;
+    fs.writeFileSync(ENV_FILE, envContent);
+    console.log("[ENV] File created with SESSION_ID=" + sessionId.substring(0, 10) + "...");
+    return true;
+  } catch (error) {
+    console.error("[ERROR] Failed to create .env:", error.message);
+    return false;
+  }
+}
+async function loadEnvFile() {
+  if (!fs.existsSync(ENV_FILE)) {
+    console.log("[INFO] No .env found, creating automatically");
+    const created = await createEnvFile();
+    if (!created) {
+      console.error("[FATAL] Cannot proceed without .env");
+      process.exit(1);
+    }
+  }
+  try {
+    const content = fs.readFileSync(ENV_FILE, "utf8");
+    const lines = content.split("\n");
+    lines.forEach(line => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) {
+        return;
+      }
+      const equalsIndex = trimmed.indexOf("=");
+      if (equalsIndex !== -1) {
+        const key = trimmed.substring(0, equalsIndex).trim();
+        const value = trimmed.substring(equalsIndex + 1).trim();
+        const cleanValue = value.replace(/^['"](.*)['"]$/, "$1");
+        if (!process.env[key]) {
+          process.env[key] = cleanValue;
+          console.log("[ENV] Loaded: " + key);
+        }
+      }
+    });
+    console.log("[ENV] File loaded");
+  } catch (error) {
+    console.error("[ERROR] Failed to load .env:", error.message);
+  }
+}
+function checkSessionId() {
+  if (process.env.SESSION_ID) {
+    console.log("[SESSION] Found: " + process.env.SESSION_ID.substring(0, 10) + "...");
+    return true;
+  } else {
+    console.log("[WARN] No SESSION_ID found");
+    console.log("Add SESSION_ID to " + ENV_FILE + " or set as env variable");
+    return false;
+  }
+}
+async function downloadAndExtract() {
+  try {
+    if (fs.existsSync(EXTRACT_DIR)) {
+      console.log("[INFO] Extracted dir found, skipping");
+      return;
+    }
+    if (fs.existsSync(TEMP_DIR)) {
+      console.log("[CLEANUP] Removing cache");
+      fs.rmSync(TEMP_DIR, { recursive: true, force: true });
+    }
+    fs.mkdirSync(TEMP_DIR, { recursive: true });
+    const zipPath = path.join(TEMP_DIR, "repo.zip");
+    console.log("[DOWNLOAD] Connecting...");
+    const response = await axios({ url: DOWNLOAD_URL, method: "GET", responseType: "stream" });
+    await new Promise((resolve, reject) => {
+      const writer = fs.createWriteStream(zipPath);
+      response.data.pipe(writer);
+      writer.on("finish", resolve);
+      writer.on("error", reject);
+    });
+    console.log("[DOWNLOAD] Completed");
+    try {
+      console.log("[EXTRACT] Extracting...");
+      new AdmZip(zipPath).extractAllTo(TEMP_DIR, true);
+    } catch (error) {
+      console.error("[ERROR] Extract failed:", error.message);
+      throw error;
+    } finally {
+      if (fs.existsSync(zipPath)) {
+        fs.unlinkSync(zipPath);
+      }
+    }
+    if (fs.existsSync(EXTRACT_DIR)) {
+      console.log("[VERIFY] Plugins folder found");
+    } else {
+      console.error("[ERROR] Plugins folder missing");
+    }
+  } catch (error) {
+    console.error("[ERROR] Download/extract failed:", error.message);
+    throw error;
+  }
+}
+async function applyLocalSettings() {
+  if (!fs.existsSync(LOCAL_SETTINGS)) {
+    console.log("[INFO] No local settings");
+    return;
+  }
+  try {
+    fs.mkdirSync(EXTRACT_DIR, { recursive: true });
+    fs.copyFileSync(LOCAL_SETTINGS, EXTRACTED_SETTINGS);
+    console.log("[SETTINGS] Applied");
+  } catch (error) {
+    console.error("[ERROR] Failed to apply settings:", error.message);
+  }
+  await delay(500);
+}
+function startBot() {
+  console.log("[LAUNCH] Starting bot");
+  if (!checkSessionId()) {
+    console.log("[WARN] No valid SESSION_ID. Exiting.");
+    process.exit(1);
+  }
+  if (!fs.existsSync(EXTRACT_DIR)) {
+    console.error("[ERROR] Extracted dir missing");
+    return;
+  }
+  if (!fs.existsSync(path.join(EXTRACT_DIR, "index.js"))) {
+    console.error("[ERROR] index.js missing");
+    return;
+  }
+  const botProcess = spawn("node", ["index.js"], { cwd: EXTRACT_DIR, stdio: "inherit", env: process.env });
+  botProcess.on("close", code => {
+    console.log("[BOT] Exit code: " + code);
+  });
+  botProcess.on("error", error => {
+    console.error("[ERROR] Bot failed:", error.message);
+  });
+}
+(async () => {
+  try {
+    console.log("[INIT] Starting app");
+    await loadEnvFile();
+    await downloadAndExtract();
+    await applyLocalSettings();
+    startBot();
+  } catch (error) {
+    console.error("[FATAL] App error:", error.message);
+    process.exit(1);
+  }
+})();

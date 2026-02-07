@@ -19,7 +19,7 @@ Preferred communication style: Simple, everyday language.
 - **State/Data**: `@tanstack/react-query` for server state management
 - **UI Components**: Full shadcn/ui component library (new-york style) in `client/src/components/ui/`
 - **Styling**: Tailwind CSS with CSS variables for theming. Dark mode with custom green/magenta color scheme defined in `client/src/index.css`. Monospace fonts (JetBrains Mono, Fira Code, Geist Mono).
-- **Core Logic**: The obfuscation engine lives in `client/src/lib/obfuscator.ts` — all obfuscation happens client-side with custom Base64 encoding, XOR encryption, and multi-round transformations
+- **Core Logic**: The obfuscation engine lives in `client/src/lib/obfuscator.ts` — all obfuscation happens client-side with custom Base64 encoding, XOR encryption, and multi-round transformations. ES module `import`/`export` statements are automatically extracted and preserved at the top level (outside eval wrappers) to maintain module compatibility.
 - **Path aliases**: `@/` maps to `client/src/`, `@shared/` maps to `shared/`, `@assets/` maps to `attached_assets/`
 
 ### Backend (Express)

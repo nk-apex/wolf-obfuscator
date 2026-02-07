@@ -603,8 +603,51 @@ function wrapInEval(code: string): string {
     `})();`;
 }
 
+function extractModuleStatements(code: string): { imports: string[]; exports: string[]; body: string } {
+  const imports: string[] = [];
+  const exports: string[] = [];
+  const bodyLines: string[] = [];
+
+  const lines = code.split('\n');
+  let pendingImport = '';
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+
+    if (pendingImport) {
+      pendingImport += ' ' + trimmed;
+      if (trimmed.includes(';') || trimmed.includes('from ') || /from\s+['"]/.test(trimmed)) {
+        imports.push(pendingImport);
+        pendingImport = '';
+      }
+      continue;
+    }
+
+    if (/^import\s/.test(trimmed) && !trimmed.startsWith('import(')) {
+      if (trimmed.includes('from ') || trimmed.includes(';') || /^import\s+['"]/.test(trimmed)) {
+        imports.push(trimmed);
+      } else {
+        pendingImport = trimmed;
+      }
+    } else if (/^export\s/.test(trimmed)) {
+      exports.push(trimmed);
+    } else {
+      bodyLines.push(lines[i]);
+    }
+  }
+
+  if (pendingImport) {
+    imports.push(pendingImport);
+  }
+
+  return { imports, exports, body: bodyLines.join('\n') };
+}
+
 function obfuscateJavaScript(code: string, options: ObfuscationOptions): string {
-  let result = code;
+  const moduleInfo = extractModuleStatements(code);
+  const hasModuleSyntax = moduleInfo.imports.length > 0 || moduleInfo.exports.length > 0;
+
+  let result = hasModuleSyntax ? moduleInfo.body : code;
 
   for (let round = 0; round < options.encryptionRounds; round++) {
     const keys = Array.from({ length: 6 }, () => Math.floor(Math.random() * 255) + 1);
@@ -661,6 +704,18 @@ function obfuscateJavaScript(code: string, options: ObfuscationOptions): string 
   }
 
   result = wrapInEval(result);
+
+  if (hasModuleSyntax) {
+    const parts: string[] = [];
+    if (moduleInfo.imports.length > 0) {
+      parts.push(moduleInfo.imports.join('\n'));
+    }
+    parts.push(result);
+    if (moduleInfo.exports.length > 0) {
+      parts.push(moduleInfo.exports.join('\n'));
+    }
+    result = parts.join('\n');
+  }
 
   return result;
 }
