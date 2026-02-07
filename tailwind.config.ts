@@ -11,6 +11,19 @@ export default {
         sm: ".1875rem", /* 3px */
       },
       colors: {
+        green: {
+          50: "#edfff5",
+          100: "#d0ffe6",
+          200: "#a4ffd0",
+          300: "#63ffae",
+          400: "#39e882",
+          500: "#10cc5c",
+          600: "#06a94a",
+          700: "#08843d",
+          800: "#0c6834",
+          900: "#0b552d",
+          950: "#003017",
+        },
         // Flat / base colors (regular buttons)
         background: "hsl(var(--background) / <alpha-value>)",
         foreground: "hsl(var(--foreground) / <alpha-value>)",

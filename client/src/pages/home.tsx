@@ -257,7 +257,7 @@ export default function Home() {
           <div className="flex justify-center mb-10">
             <div
               className="inline-flex items-center gap-2 px-6 py-3 rounded-xl border border-green-500/15 bg-black/40 backdrop-blur-sm"
-              style={{ boxShadow: "0 0 30px rgba(0,255,0,0.05)" }}
+              style={{ boxShadow: "0 0 30px rgba(57,232,130,0.05)" }}
               data-testid="text-credit"
             >
               <Shield className="w-4 h-4 text-green-400" />
@@ -388,7 +388,7 @@ export default function Home() {
 
               <div
                 className="rounded-xl border border-green-500/15 bg-black/30 backdrop-blur-sm overflow-hidden"
-                style={{ boxShadow: "0 0 40px rgba(0,255,0,0.06)" }}
+                style={{ boxShadow: "0 0 40px rgba(57,232,130,0.06)" }}
               >
                 <div className="flex items-center justify-between px-4 py-2.5 border-b border-green-500/10 bg-black/50">
                   <div className="flex items-center gap-2">
