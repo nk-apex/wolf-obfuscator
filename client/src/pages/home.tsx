@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Shield, Code2, Lock, Zap, Copy, Download, Trash2,
-  ArrowUpRight, Settings2, FileCode2, Eye, EyeOff,
+  Settings2, FileCode2, Eye,
   Layers, Bug, Shuffle, Binary, Globe, ChevronDown,
   Terminal, FileText, Braces, Hash
 } from "lucide-react";
@@ -125,44 +125,6 @@ const LANGUAGE_INFO: Record<Language, { label: string; icon: typeof Code2; ext: 
   batch: { label: "Batch/Shell", icon: Terminal, ext: ".bat" },
 };
 
-const FEATURES = [
-  {
-    icon: Lock,
-    title: "String Encryption",
-    desc: "XOR encryption with rotating keys & custom Base64 alphabet",
-    color: "text-green-400",
-  },
-  {
-    icon: Shuffle,
-    title: "Control Flow Flattening",
-    desc: "Transforms linear code into switch-based spaghetti code",
-    color: "text-green-400",
-  },
-  {
-    icon: Bug,
-    title: "Dead Code Injection",
-    desc: "Injects realistic but unreachable decoy functions",
-    color: "text-purple-400",
-  },
-  {
-    icon: Hash,
-    title: "Identifier Mangling",
-    desc: "Replaces all identifiers with randomized hex names",
-    color: "text-green-400",
-  },
-  {
-    icon: Shield,
-    title: "Anti-Debug Protection",
-    desc: "Traps debugger and prevents reverse engineering",
-    color: "text-purple-400",
-  },
-  {
-    icon: Layers,
-    title: "Multi-Layer Encoding",
-    desc: "Up to 5 rounds of nested eval wrapping with custom encoding",
-    color: "text-green-400",
-  },
-];
 
 export default function Home() {
   const { toast } = useToast();
@@ -285,19 +247,15 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-10">
-            {FEATURES.map((f) => (
-              <div
-                key={f.title}
-                className="group relative rounded-xl border border-green-500/10 bg-black/40 backdrop-blur-sm p-3 transition-all duration-300 hover:border-green-500/30"
-                style={{ boxShadow: "0 0 20px rgba(0,255,0,0.03)" }}
-              >
-                <f.icon className={`w-5 h-5 ${f.color} mb-2`} />
-                <h3 className="text-[11px] font-semibold text-white mb-1 leading-tight">{f.title}</h3>
-                <p className="text-[9px] text-gray-600 leading-snug">{f.desc}</p>
-                <ArrowUpRight className="absolute top-2.5 right-2.5 w-3 h-3 text-gray-700 transition-all duration-300 group-hover:text-green-400 group-hover:rotate-45" />
-              </div>
-            ))}
+          <div className="flex justify-center mb-10">
+            <div
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl border border-green-500/15 bg-black/40 backdrop-blur-sm"
+              style={{ boxShadow: "0 0 30px rgba(0,255,0,0.05)" }}
+              data-testid="text-credit"
+            >
+              <Shield className="w-4 h-4 text-green-400" />
+              <span className="text-sm text-gray-400 tracking-wider">By <span className="text-green-400 font-semibold">Silent Wolf</span></span>
+            </div>
           </div>
         </section>
 
@@ -407,28 +365,16 @@ export default function Home() {
                 </Button>
 
                 {outputCode && (
-                  <>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleCopy}
-                      className="border-purple-500/30 text-purple-400 bg-purple-500/5 font-mono text-xs"
-                      data-testid="button-copy"
-                    >
-                      <Copy className="w-3.5 h-3.5 mr-1.5" />
-                      Copy
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleDownload}
-                      className="border-green-500/30 text-green-400 bg-green-500/5 font-mono text-xs"
-                      data-testid="button-download"
-                    >
-                      <Download className="w-3.5 h-3.5 mr-1.5" />
-                      Download
-                    </Button>
-                  </>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDownload}
+                    className="border-green-500/30 text-green-400 bg-green-500/5 font-mono text-xs"
+                    data-testid="button-download"
+                  >
+                    <Download className="w-3.5 h-3.5 mr-1.5" />
+                    Download
+                  </Button>
                 )}
 
                 <Button
@@ -467,7 +413,7 @@ export default function Home() {
                 className="rounded-xl border border-purple-500/15 bg-black/30 backdrop-blur-sm overflow-hidden"
                 style={{ boxShadow: "0 0 40px rgba(255,0,255,0.05)" }}
               >
-                <div className="flex items-center justify-between px-4 py-2.5 border-b border-purple-500/10 bg-black/50">
+                <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-purple-500/10 bg-black/50">
                   <div className="flex items-center gap-2">
                     <Lock className="w-4 h-4 text-purple-400" />
                     <span className="text-xs text-gray-400">Obfuscated Output</span>
@@ -475,11 +421,24 @@ export default function Home() {
                       PROTECTED
                     </Badge>
                   </div>
-                  {outputCode && (
-                    <span className="text-[10px] text-gray-600">
-                      {outputCode.length.toLocaleString()} chars
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {outputCode && (
+                      <span className="text-[10px] text-gray-600">
+                        {outputCode.length.toLocaleString()} chars
+                      </span>
+                    )}
+                    {outputCode && (
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={handleCopy}
+                        className="border-purple-500/30 text-purple-400 bg-purple-500/5"
+                        data-testid="button-copy"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 <textarea
                   ref={outputRef}
