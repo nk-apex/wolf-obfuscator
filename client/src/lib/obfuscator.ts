@@ -85,20 +85,121 @@ function generateDeadCode(): string {
   return templates[Math.floor(Math.random() * templates.length)]();
 }
 
+function splitStatements(code: string): string[] {
+  const statements: string[] = [];
+  let current = '';
+  let depth = 0;
+  let inString: string | null = null;
+  let escaped = false;
+
+  for (let i = 0; i < code.length; i++) {
+    const ch = code[i];
+
+    if (escaped) {
+      current += ch;
+      escaped = false;
+      continue;
+    }
+
+    if (ch === '\\') {
+      current += ch;
+      escaped = true;
+      continue;
+    }
+
+    if (inString) {
+      current += ch;
+      if (ch === inString) inString = null;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'" || ch === '`') {
+      current += ch;
+      inString = ch;
+      continue;
+    }
+
+    if (ch === '(' || ch === '{' || ch === '[') {
+      depth++;
+      current += ch;
+      continue;
+    }
+
+    if (ch === ')' || ch === '}' || ch === ']') {
+      depth--;
+      current += ch;
+      continue;
+    }
+
+    if (ch === ';' && depth === 0) {
+      if (current.trim()) statements.push(current.trim());
+      current = '';
+      continue;
+    }
+
+    current += ch;
+  }
+
+  if (current.trim()) statements.push(current.trim());
+  return statements;
+}
+
 function extractStrings(code: string): { strings: string[]; code: string } {
   const strings: string[] = [];
-  let modified = code;
-  const regex = /(["'])(?:(?=(\\?))\2.)*?\1/g;
-  let match;
-  while ((match = regex.exec(code)) !== null) {
-    const str = match[0];
-    const inner = str.slice(1, -1);
-    if (inner.length > 0) {
-      strings.push(inner);
-      const arrName = '_0xstrArr';
-      modified = modified.replace(str, `${arrName}[${strings.length - 1}]`);
+  let modified = '';
+  let i = 0;
+  let inString: string | null = null;
+  let currentStr = '';
+  let escaped = false;
+  const arrName = '_0xstrArr';
+
+  while (i < code.length) {
+    const ch = code[i];
+
+    if (escaped) {
+      if (inString) currentStr += ch;
+      else modified += ch;
+      escaped = false;
+      i++;
+      continue;
     }
+
+    if (ch === '\\') {
+      if (inString) currentStr += ch;
+      else modified += ch;
+      escaped = true;
+      i++;
+      continue;
+    }
+
+    if (inString) {
+      if (ch === inString) {
+        if (currentStr.length > 0) {
+          strings.push(currentStr);
+          modified += `${arrName}[${strings.length - 1}]`;
+        } else {
+          modified += inString + inString;
+        }
+        currentStr = '';
+        inString = null;
+      } else {
+        currentStr += ch;
+      }
+    } else {
+      if (ch === '"' || ch === "'") {
+        inString = ch;
+        currentStr = '';
+      } else {
+        modified += ch;
+      }
+    }
+    i++;
   }
+
+  if (inString) {
+    modified += inString + currentStr;
+  }
+
   return { strings, code: modified };
 }
 
@@ -106,7 +207,7 @@ function encryptStringArray(strings: string[], keys: number[]): string {
   const arrName = '_0xstrArr';
   const decFn = '_0xstrDec';
   const keyArr = `[${keys.join(',')}]`;
-  
+
   const encrypted = strings.map(s => {
     const enc = xorEncrypt(s, keys);
     return customB64Encode(enc);
@@ -125,24 +226,31 @@ function encryptStringArray(strings: string[], keys: number[]): string {
 }
 
 function flattenControlFlow(code: string): string {
-  const lines = code.split(';').filter(l => l.trim().length > 0);
-  if (lines.length < 3) return code;
+  const statements = splitStatements(code);
+  if (statements.length < 3) return code;
 
   const stateVar = generateRandomName(6);
   const whileVar = generateRandomName(4);
-  
-  const order = Array.from({ length: lines.length }, (_, i) => i);
+
+  const order = Array.from({ length: statements.length }, (_, i) => i);
   for (let i = order.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [order[i], order[j]] = [order[j], order[i]];
   }
 
-  const cases = order.map((originalIdx, caseIdx) => {
-    const nextState = caseIdx < order.length - 1 ? `${stateVar}=${caseIdx + 1}` : `${whileVar}=false`;
-    return `case ${caseIdx}:${lines[originalIdx]};${nextState};break`;
+  const reverseMap = new Array(order.length);
+  for (let i = 0; i < order.length; i++) {
+    reverseMap[order[i]] = i;
+  }
+
+  const cases = order.map((originalIdx, shuffledIdx) => {
+    const nextState = shuffledIdx < order.length - 1
+      ? `${stateVar}=${reverseMap[originalIdx + 1 < order.length ? originalIdx + 1 : -1] ?? -1}`
+      : `${whileVar}=false`;
+    return `case ${shuffledIdx}:${statements[originalIdx]};${nextState};break`;
   }).join(';');
 
-  return `var ${stateVar}=0,${whileVar}=true;while(${whileVar}){switch(${stateVar}){${cases};}}`;
+  return `var ${stateVar}=${reverseMap[0]},${whileVar}=true;while(${whileVar}){switch(${stateVar}){${cases};}}`;
 }
 
 function mangleIdentifiers(code: string): string {
@@ -164,32 +272,87 @@ function mangleIdentifiers(code: string): string {
     'join', 'split', 'replace', 'match', 'test', 'exec', 'keys',
     'values', 'entries', 'assign', 'freeze', 'create',
     '_0xstrArr', '_0xstrDec', 'escape', 'unescape',
-    'charCodeAt', 'fromCharCode', 'charAt',
+    'charCodeAt', 'fromCharCode', 'charAt', 'apply', 'call', 'bind',
+    'fetch', 'Response', 'Request', 'Headers',
   ]);
 
-  const identRegex = /\b([a-zA-Z_$][a-zA-Z0-9_$]*)\b/g;
+  let result = '';
+  let i = 0;
+  let inString: string | null = null;
+  let escaped = false;
   const identMap = new Map<string, string>();
 
-  let result = code;
-  let match;
-  const allIdents = new Set<string>();
+  const declareRegex = /(?:var|let|const|function)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g;
+  const paramRegex = /function\s*[a-zA-Z_$]*\s*\(([^)]*)\)/g;
+  const declaredIdents = new Set<string>();
 
-  while ((match = identRegex.exec(code)) !== null) {
-    const ident = match[1];
-    if (!reserved.has(ident) && ident.length > 1 && !ident.startsWith('_0x') && !ident.startsWith('_$') && !ident.startsWith('$_') && !ident.startsWith('_W') && !ident.startsWith('_O') && !ident.startsWith('_L') && !ident.startsWith('_F')) {
-      allIdents.add(ident);
+  let m;
+  while ((m = declareRegex.exec(code)) !== null) {
+    if (!reserved.has(m[1]) && m[1].length > 1 && !m[1].startsWith('_0x') && !m[1].startsWith('_$') && !m[1].startsWith('$_')) {
+      declaredIdents.add(m[1]);
+    }
+  }
+  while ((m = paramRegex.exec(code)) !== null) {
+    const params = m[1].split(',').map(p => p.trim()).filter(Boolean);
+    for (const p of params) {
+      const name = p.replace(/\s*=.*$/, '').trim();
+      if (name && !reserved.has(name) && name.length > 1 && !name.startsWith('_0x')) {
+        declaredIdents.add(name);
+      }
     }
   }
 
-  for (const ident of allIdents) {
-    if (!identMap.has(ident)) {
-      identMap.set(ident, generateRandomName(8));
-    }
+  for (const ident of declaredIdents) {
+    identMap.set(ident, generateRandomName(8));
   }
 
-  for (const [original, mangled] of identMap) {
-    const escapedOriginal = original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    result = result.replace(new RegExp(`\\b${escapedOriginal}\\b`, 'g'), mangled);
+  while (i < code.length) {
+    const ch = code[i];
+
+    if (escaped) {
+      result += ch;
+      escaped = false;
+      i++;
+      continue;
+    }
+
+    if (ch === '\\') {
+      result += ch;
+      escaped = true;
+      i++;
+      continue;
+    }
+
+    if (inString) {
+      result += ch;
+      if (ch === inString) inString = null;
+      i++;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'" || ch === '`') {
+      result += ch;
+      inString = ch;
+      i++;
+      continue;
+    }
+
+    if (/[a-zA-Z_$]/.test(ch)) {
+      let ident = '';
+      while (i < code.length && /[a-zA-Z0-9_$]/.test(code[i])) {
+        ident += code[i];
+        i++;
+      }
+      if (identMap.has(ident)) {
+        result += identMap.get(ident)!;
+      } else {
+        result += ident;
+      }
+      continue;
+    }
+
+    result += ch;
+    i++;
   }
 
   return result;
@@ -201,11 +364,8 @@ function addSelfDefense(code: string): string {
 
   const selfDefense = `(function(){` +
     `var ${checkFn}=function(){` +
-    `var _test=function(){return 'dev';}['constructor']('return /" + this + "/')()['compile']('^([^ ]+( +[^ ]+)+)+[^ ]}');` +
-    `try{var _result=_test['test'](${checkFn}['toString']());` +
-    `if(!_result){(function(){return false;})['constructor']('debugger')['apply']('stateObject');}` +
-    `else{(function(){return false;})['constructor']('debugger')['apply']('stateObject');}` +
-    `}catch(_e){}};` +
+    `try{(function(){return false;})['constructor']('debugger')['apply']('stateObject');}` +
+    `catch(_e){}};` +
     `var ${timerFn}=setInterval(function(){${checkFn}();},0x${(Math.floor(Math.random()*3000)+1000).toString(16)});` +
     `})();`;
 
@@ -214,11 +374,10 @@ function addSelfDefense(code: string): string {
 
 function addDebugProtection(code: string): string {
   const trap = `(function(){` +
-    `var _c=new RegExp('function *\\\\( *\\\\)');` +
-    `var _t=new RegExp('\\\\+\\\\+ *(?:[a-zA-Z_$][0-9a-zA-Z_$]*)','i');` +
-    `var _f=function(_a){if(!_c['test'](_a+'chain')||!_t['test'](_a+'input')){_a('0');}else{(function(){return false;})['constructor']('debugger')['call']('action');}` +
-    `_f(++_a);};` +
-    `try{_f(0);}catch(_e){}` +
+    `var _c=function(){try{(function _d(){return ('' + _d / _d)['length']!==1 || _d % 20 === 0` +
+    `?(function(){return true;})['constructor']('debugger')['call']('action'):` +
+    `(function(){return false;})['constructor']('debugger')['apply']('stateObject');` +
+    `_d();})();}catch(_e){}};_c();` +
     `})();`;
   return trap + code;
 }
@@ -228,19 +387,76 @@ function addDomainLock(code: string, domain: string): string {
   const encoded = customB64Encode(domain);
   const decVar = generateRandomName(6);
   return `(function(){` +
-    `var ${decVar}='${encoded}';` +
+    `var _b='${CUSTOM_ALPHABET}',_s2='${STANDARD_B64}',_e='${encoded}',_d='';` +
+    `for(var _i=0;_i<_e.length;_i++){var _x=_b.indexOf(_e[_i]);_d+=_x>=0?_s2[_x]:_e[_i];}` +
+    `_d=decodeURIComponent(escape(atob(_d)));` +
     `var _h=typeof window!=='undefined'?window['location']['hostname']:'';` +
-    `if(_h&&_h.indexOf(${decVar})===-1){return;}` +
+    `if(_h&&_h.indexOf(_d)===-1){while(true){}}` +
     `})();` + code;
 }
 
 function compressWhitespace(code: string): string {
-  return code
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/\/\/[^\n]*/g, '')
-    .replace(/\s+/g, ' ')
-    .replace(/\s*([{}();,=+\-*/<>!&|?:])\s*/g, '$1')
-    .trim();
+  let result = '';
+  let inString: string | null = null;
+  let escaped = false;
+  let lastWasSpace = false;
+
+  for (let i = 0; i < code.length; i++) {
+    const ch = code[i];
+
+    if (escaped) {
+      result += ch;
+      escaped = false;
+      continue;
+    }
+
+    if (ch === '\\' && inString) {
+      result += ch;
+      escaped = true;
+      continue;
+    }
+
+    if (inString) {
+      result += ch;
+      if (ch === inString) inString = null;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'" || ch === '`') {
+      result += ch;
+      inString = ch;
+      lastWasSpace = false;
+      continue;
+    }
+
+    if (ch === '/' && i + 1 < code.length && code[i + 1] === '/') {
+      while (i < code.length && code[i] !== '\n') i++;
+      continue;
+    }
+
+    if (ch === '/' && i + 1 < code.length && code[i + 1] === '*') {
+      i += 2;
+      while (i < code.length - 1 && !(code[i] === '*' && code[i + 1] === '/')) i++;
+      i++;
+      continue;
+    }
+
+    if (/\s/.test(ch)) {
+      if (!lastWasSpace && result.length > 0) {
+        const lastChar = result[result.length - 1];
+        if (/[a-zA-Z0-9_$]/.test(lastChar)) {
+          result += ' ';
+          lastWasSpace = true;
+        }
+      }
+      continue;
+    }
+
+    lastWasSpace = false;
+    result += ch;
+  }
+
+  return result.trim();
 }
 
 function wrapInEval(code: string): string {
@@ -279,12 +495,12 @@ function obfuscateJavaScript(code: string, options: ObfuscationOptions): string 
     }
 
     if (options.controlFlowFlattening && round === 0) {
-      const sections = result.split(/(?<=;)/).filter(s => s.trim());
-      if (sections.length > 4) {
-        const mid = Math.floor(sections.length / 2);
-        const chunk1 = sections.slice(0, mid).join('');
-        const chunk2 = sections.slice(mid).join('');
-        result = chunk1 + flattenControlFlow(chunk2);
+      const statements = splitStatements(result);
+      if (statements.length > 4) {
+        const mid = Math.floor(statements.length / 2);
+        const chunk1 = statements.slice(0, mid).join(';') + ';';
+        const chunk2Stmts = statements.slice(mid);
+        result = chunk1 + flattenControlFlow(chunk2Stmts.join(';'));
       }
     }
 
@@ -319,19 +535,62 @@ function obfuscateCSS(code: string, options: ObfuscationOptions): string {
 
   result = result.replace(/\/\*[\s\S]*?\*\//g, '');
 
-  const classMap = new Map<string, string>();
-  const classRegex = /\.([a-zA-Z_-][a-zA-Z0-9_-]*)/g;
-  let match;
-  while ((match = classRegex.exec(code)) !== null) {
-    const cls = match[1];
-    if (!classMap.has(cls)) {
-      classMap.set(cls, `_${generateRandomName(6).replace(/[^a-zA-Z0-9_-]/g, '')}`);
+  if (options.identifierMangling) {
+    const classMap = new Map<string, string>();
+    const idMap = new Map<string, string>();
+
+    const classRegex = /\.([a-zA-Z_-][a-zA-Z0-9_-]*)/g;
+    let match;
+    while ((match = classRegex.exec(code)) !== null) {
+      const cls = match[1];
+      if (!classMap.has(cls)) {
+        classMap.set(cls, `_${generateRandomName(6).replace(/[^a-zA-Z0-9_-]/g, '')}`);
+      }
+    }
+
+    const idRegex = /#([a-zA-Z_-][a-zA-Z0-9_-]*)/g;
+    while ((match = idRegex.exec(code)) !== null) {
+      const id = match[1];
+      if (!idMap.has(id)) {
+        idMap.set(id, `_${generateRandomName(6).replace(/[^a-zA-Z0-9_-]/g, '')}`);
+      }
+    }
+
+    for (const [original, mangled] of classMap) {
+      const escaped = original.replace(/[-[\]{}()*+?.,\\^$|#]/g, '\\$&');
+      result = result.replace(new RegExp(`\\.${escaped}(?=[\\s{:,>+~\\[])`, 'g'), `.${mangled}`);
+    }
+    for (const [original, mangled] of idMap) {
+      const escaped = original.replace(/[-[\]{}()*+?.,\\^$|#]/g, '\\$&');
+      result = result.replace(new RegExp(`#${escaped}(?=[\\s{:,>+~\\[])`, 'g'), `#${mangled}`);
     }
   }
 
-  for (const [original, mangled] of classMap) {
-    const escaped = original.replace(/[-[\]{}()*+?.,\\^$|#]/g, '\\$&');
-    result = result.replace(new RegExp(`\\.${escaped}\\b`, 'g'), `.${mangled}`);
+  if (options.deadCodeInjection) {
+    const fakeRules = Array.from({ length: 3 }, () => {
+      const sel = `.${generateRandomName(5).replace(/[^a-zA-Z0-9_-]/g, '')}`;
+      const props = [
+        `visibility:hidden`,
+        `position:absolute`,
+        `left:-9999px`,
+        `opacity:0`,
+        `pointer-events:none`,
+      ];
+      return `${sel}{${props.join(';')}}`;
+    });
+    result = fakeRules.join('') + result;
+  }
+
+  if (options.stringEncryption) {
+    const hexColors = result.match(/#[0-9a-fA-F]{3,8}\b/g) || [];
+    for (const hex of hexColors) {
+      if (hex.length === 7) {
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        result = result.replace(hex, `rgb(${r},${g},${b})`);
+      }
+    }
   }
 
   if (options.compressCode) {
@@ -342,21 +601,13 @@ function obfuscateCSS(code: string, options: ObfuscationOptions): string {
       .trim();
   }
 
-  if (options.stringEncryption) {
-    const encoded = customB64Encode(result);
-    result = `/* W0LF-${generateRandomName(4)} */` +
-      `(function(){var _s='${encoded}',_b='${CUSTOM_ALPHABET}',_s2='${STANDARD_B64}',_d='';` +
-      `for(var _i=0;_i<_s.length;_i++){var _x=_b.indexOf(_s[_i]);_d+=_x>=0?_s2[_x]:_s[_i];}` +
-      `_d=decodeURIComponent(escape(atob(_d)));` +
-      `var _el=document.createElement('style');_el.textContent=_d;document.head.appendChild(_el);` +
-      `})();`;
-  }
-
   return result;
 }
 
 function obfuscateHTML(code: string, options: ObfuscationOptions): string {
   let result = code;
+
+  result = result.replace(/<!--[\s\S]*?-->/g, '');
 
   if (options.identifierMangling) {
     const idRegex = /id=["']([^"']+)["']/g;
@@ -366,37 +617,60 @@ function obfuscateHTML(code: string, options: ObfuscationOptions): string {
     let match;
 
     while ((match = idRegex.exec(code)) !== null) {
-      if (!idMap.has(match[1])) idMap.set(match[1], `_${generateRandomName(5)}`);
+      if (!idMap.has(match[1])) idMap.set(match[1], `_${generateRandomName(5).replace(/[^a-zA-Z0-9_-]/g, '')}`);
     }
     while ((match = classRegex.exec(code)) !== null) {
       const classes = match[1].split(/\s+/);
       for (const cls of classes) {
-        if (!clsMap.has(cls)) clsMap.set(cls, `_${generateRandomName(5)}`);
+        if (!clsMap.has(cls)) clsMap.set(cls, `_${generateRandomName(5).replace(/[^a-zA-Z0-9_-]/g, '')}`);
       }
     }
 
     for (const [orig, mangled] of idMap) {
-      result = result.replace(new RegExp(`id=["']${orig}["']`, 'g'), `id="${mangled}"`);
+      const escaped = orig.replace(/[-[\]{}()*+?.,\\^$|#]/g, '\\$&');
+      result = result.replace(new RegExp(`(id=["'])${escaped}(["'])`, 'g'), `$1${mangled}$2`);
     }
     for (const [orig, mangled] of clsMap) {
-      result = result.replace(new RegExp(`\\b${orig}\\b`, 'g'), mangled);
+      const escaped = orig.replace(/[-[\]{}()*+?.,\\^$|#]/g, '\\$&');
+      result = result.replace(new RegExp(`\\b${escaped}\\b`, 'g'), mangled);
+    }
+  }
+
+  if (options.deadCodeInjection) {
+    const fakeElements = [
+      `<div style="display:none" data-${generateRandomName(4).replace(/[^a-z]/g, '')}="${Math.random().toString(36).slice(2)}"></div>`,
+      `<span style="visibility:hidden;position:absolute" aria-hidden="true">${generateRandomName(3)}</span>`,
+      `<!-- ${customB64Encode(generateRandomName(10))} -->`,
+    ];
+    const bodyClose = result.lastIndexOf('</body>');
+    if (bodyClose > -1) {
+      result = result.slice(0, bodyClose) + fakeElements.join('') + result.slice(bodyClose);
+    } else {
+      result += fakeElements.join('');
+    }
+  }
+
+  if (options.stringEncryption) {
+    const textRegex = />([^<]{3,})</g;
+    let m;
+    const replacements: [string, string][] = [];
+    while ((m = textRegex.exec(result)) !== null) {
+      const text = m[1].trim();
+      if (text.length > 2) {
+        const encoded = text.split('').map(c => `&#${c.charCodeAt(0)};`).join('');
+        replacements.push([`>${m[1]}<`, `>${encoded}<`]);
+      }
+    }
+    for (const [from, to] of replacements) {
+      result = result.replace(from, to);
     }
   }
 
   if (options.compressCode) {
     result = result
-      .replace(/<!--[\s\S]*?-->/g, '')
       .replace(/\s+/g, ' ')
       .replace(/>\s+</g, '><')
       .trim();
-  }
-
-  if (options.stringEncryption) {
-    const encoded = customB64Encode(result);
-    result = `<script>(function(){var _s='${encoded}',_b='${CUSTOM_ALPHABET}',_s2='${STANDARD_B64}',_d='';` +
-      `for(var _i=0;_i<_s.length;_i++){var _x=_b.indexOf(_s[_i]);_d+=_x>=0?_s2[_x]:_s[_i];}` +
-      `_d=decodeURIComponent(escape(atob(_d)));document.write(_d);` +
-      `})();</script>`;
   }
 
   return result;
@@ -409,59 +683,76 @@ function obfuscateBatch(code: string, options: ObfuscationOptions): string {
   result = result.replace(/^:: .*/gm, '');
 
   if (options.identifierMangling) {
-    const varRegex = /%%?([a-zA-Z_][a-zA-Z0-9_]*)%%?/g;
-    const setRegex = /set\s+\/?\w?\s*"?([a-zA-Z_]\w*)=/gi;
+    const setRegex = /set\s+(?:\/\w\s+)?"?([a-zA-Z_]\w*)=/gi;
     const varMap = new Map<string, string>();
     let match;
 
-    const reserved = new Set(['errorlevel', 'cd', 'date', 'time', 'random', 'path', 'pathext', 'comspec', 'os', 'userprofile', 'temp', 'tmp', 'homedrive', 'homepath', 'username', 'appdata', 'programfiles', 'systemroot', 'windir']);
+    const reserved = new Set(['errorlevel', 'cd', 'date', 'time', 'random', 'path', 'pathext', 'comspec', 'os', 'userprofile', 'temp', 'tmp', 'homedrive', 'homepath', 'username', 'appdata', 'programfiles', 'systemroot', 'windir', 'counter']);
 
-    while ((match = varRegex.exec(code)) !== null) {
-      const v = match[1].toLowerCase();
-      if (!reserved.has(v) && !varMap.has(match[1])) {
-        varMap.set(match[1], `_W${generateRandomName(4)}`);
-      }
-    }
     while ((match = setRegex.exec(code)) !== null) {
       const v = match[1].toLowerCase();
       if (!reserved.has(v) && !varMap.has(match[1])) {
-        varMap.set(match[1], `_W${generateRandomName(4)}`);
+        varMap.set(match[1], `_W${generateRandomName(4).replace(/[^a-zA-Z0-9_]/g, '')}`);
       }
     }
 
     for (const [orig, mangled] of varMap) {
-      result = result.replace(new RegExp(`%${orig}%`, 'g'), `%${mangled}%`);
-      result = result.replace(new RegExp(`%%${orig}%%`, 'g'), `%%${mangled}%%`);
       const escaped = orig.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      result = result.replace(new RegExp(`%${escaped}%`, 'gi'), `%${mangled}%`);
       result = result.replace(new RegExp(`(set\\s+(?:\\/\\w\\s+)?"?)${escaped}(=)`, 'gi'), `$1${mangled}$2`);
     }
   }
 
   if (options.deadCodeInjection) {
     const deadLabels = Array.from({ length: 3 }, () => {
-      const label = `:_W${generateRandomName(4)}`;
-      return `${label}\r\nif 1==0 (\r\necho %random%\r\ngoto :eof\r\n)`;
+      const label = `_W${generateRandomName(4).replace(/[^a-zA-Z0-9_]/g, '')}`;
+      return `:${label}\r\nif 1==0 (\r\necho %random%%random%\r\ngoto :eof\r\n)`;
     });
     result = deadLabels.join('\r\n') + '\r\n' + result;
   }
 
   if (options.stringEncryption) {
     const lines = result.split(/\r?\n/);
-    const encodedLines = lines.map(line => {
-      if (line.trim().startsWith('@') || line.trim().startsWith(':') || line.trim() === '') return line;
-      const chars = line.split('').map(c => `%=exitcodeAscii%` === '' ? c : c);
+    const obfLines = lines.map(line => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('@') || trimmed.startsWith(':') || trimmed === '' || trimmed.startsWith('if ') || trimmed.startsWith('goto') || trimmed.startsWith('set ')) {
+        return line;
+      }
+      if (trimmed.startsWith('echo ')) {
+        const msg = trimmed.slice(5);
+        const encoded = msg.split('').map(c => {
+          const code = c.charCodeAt(0);
+          return `!_c${code}!`;
+        }).join('');
+        return `echo ${encoded}`;
+      }
       return line;
     });
-    result = '@echo off\r\n' + encodedLines.join('\r\n');
 
-    const encoded = customB64Encode(result);
-    const ps = `powershell -NoProfile -ExecutionPolicy Bypass -Command "` +
-      `$b='${CUSTOM_ALPHABET}';$s='${STANDARD_B64}';$e='${encoded}';$d='';` +
-      `for($i=0;$i -lt $e.Length;$i++){$x=$b.IndexOf($e[$i]);if($x -ge 0){$d+=$s[$x]}else{$d+=$e[$i]}};` +
-      `$r=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($d));` +
-      `$t=[System.IO.Path]::GetTempFileName()+'.bat';` +
-      `[System.IO.File]::WriteAllText($t,$r);& $t;Remove-Item $t -Force"`;
-    result = `@echo off\r\n${ps}`;
+    const charSetup: string[] = [];
+    const usedCodes = new Set<number>();
+    for (const line of obfLines) {
+      const matches = line.match(/!_c(\d+)!/g);
+      if (matches) {
+        for (const m of matches) {
+          const code = parseInt(m.slice(3, -1));
+          usedCodes.add(code);
+        }
+      }
+    }
+    for (const code of usedCodes) {
+      charSetup.push(`set "_c${code}=${String.fromCharCode(code)}"`);
+    }
+
+    if (charSetup.length > 0) {
+      result = '@echo off\r\nsetlocal enabledelayedexpansion\r\n' + charSetup.join('\r\n') + '\r\n' + obfLines.join('\r\n');
+    } else {
+      result = obfLines.join('\r\n');
+    }
+  }
+
+  if (options.compressCode) {
+    result = result.replace(/\r?\n\s*\r?\n/g, '\r\n');
   }
 
   return result;

@@ -325,7 +325,7 @@ export default function Home() {
                       const info = LANGUAGE_INFO[lang];
                       const Icon = info.icon;
                       return (
-                        <SelectItem key={lang} value={lang} className="text-gray-300 focus:bg-green-500/10 focus:text-green-400 font-mono text-xs">
+                        <SelectItem key={lang} value={lang} className="text-gray-300 focus:bg-green-500/10 focus:text-green-400 font-mono text-xs" data-testid={`select-item-${lang}`}>
                           <span className="flex items-center gap-2">
                             <Icon className="w-3.5 h-3.5" />
                             {info.label}
@@ -340,7 +340,7 @@ export default function Home() {
                   variant="outline"
                   size="sm"
                   onClick={handleLoadSample}
-                  className="border-green-500/20 text-green-400 bg-green-500/5 font-mono text-xs no-default-hover-elevate hover:bg-green-500/15 hover:border-green-500/40"
+                  className="border-green-500/20 text-green-400 bg-green-500/5 font-mono text-xs"
                   data-testid="button-load-sample"
                 >
                   <Code2 className="w-3.5 h-3.5 mr-1.5" />
@@ -351,7 +351,7 @@ export default function Home() {
                   variant="outline"
                   size="sm"
                   onClick={() => setShowSettings(!showSettings)}
-                  className="border-green-500/20 text-gray-400 bg-black/30 font-mono text-xs no-default-hover-elevate hover:bg-green-500/10 hover:text-green-400 ml-auto"
+                  className="border-green-500/20 text-gray-400 bg-black/30 font-mono text-xs ml-auto"
                   data-testid="button-toggle-settings"
                 >
                   <Settings2 className="w-3.5 h-3.5 mr-1.5" />
@@ -390,7 +390,7 @@ export default function Home() {
                 <Button
                   onClick={handleObfuscate}
                   disabled={isObfuscating || !inputCode.trim()}
-                  className="bg-green-500/10 border border-green-500/30 text-green-400 font-mono text-xs px-6 no-default-hover-elevate hover:bg-green-500/20 hover:scale-[1.02] transition-all disabled:opacity-30"
+                  className="bg-green-500/10 border border-green-500/30 text-green-400 font-mono text-xs px-6 transition-all disabled:opacity-30"
                   data-testid="button-obfuscate"
                 >
                   {isObfuscating ? (
@@ -412,7 +412,7 @@ export default function Home() {
                       variant="outline"
                       size="sm"
                       onClick={handleCopy}
-                      className="border-purple-500/30 text-purple-400 bg-purple-500/5 font-mono text-xs no-default-hover-elevate hover:bg-purple-500/15"
+                      className="border-purple-500/30 text-purple-400 bg-purple-500/5 font-mono text-xs"
                       data-testid="button-copy"
                     >
                       <Copy className="w-3.5 h-3.5 mr-1.5" />
@@ -422,7 +422,7 @@ export default function Home() {
                       variant="outline"
                       size="sm"
                       onClick={handleDownload}
-                      className="border-green-500/30 text-green-400 bg-green-500/5 font-mono text-xs no-default-hover-elevate hover:bg-green-500/15"
+                      className="border-green-500/30 text-green-400 bg-green-500/5 font-mono text-xs"
                       data-testid="button-download"
                     >
                       <Download className="w-3.5 h-3.5 mr-1.5" />
@@ -435,7 +435,7 @@ export default function Home() {
                   variant="outline"
                   size="sm"
                   onClick={handleClear}
-                  className="border-red-500/20 text-red-400/60 bg-transparent font-mono text-xs no-default-hover-elevate hover:bg-red-500/10 hover:text-red-400 ml-auto"
+                  className="border-red-500/20 text-red-400/60 bg-transparent font-mono text-xs ml-auto"
                   data-testid="button-clear"
                 >
                   <Trash2 className="w-3.5 h-3.5 mr-1.5" />
@@ -444,19 +444,19 @@ export default function Home() {
               </div>
 
               {stats && (
-                <div className="flex items-center gap-4 px-4 py-3 rounded-xl border border-purple-500/15 bg-purple-500/5 flex-wrap">
+                <div className="flex items-center gap-4 px-4 py-3 rounded-xl border border-purple-500/15 bg-purple-500/5 flex-wrap" data-testid="stats-panel">
                   <div className="flex items-center gap-2">
                     <Binary className="w-4 h-4 text-purple-400" />
                     <span className="text-[10px] text-gray-400 uppercase tracking-wider">Stats</span>
                   </div>
                   <div className="flex items-center gap-4 text-xs flex-wrap">
-                    <span className="text-gray-400">
+                    <span className="text-gray-400" data-testid="text-stats-original">
                       Original: <span className="text-green-400 font-semibold">{stats.original.toLocaleString()}</span> chars
                     </span>
-                    <span className="text-gray-400">
+                    <span className="text-gray-400" data-testid="text-stats-protected">
                       Protected: <span className="text-purple-400 font-semibold">{stats.obfuscated.toLocaleString()}</span> chars
                     </span>
-                    <span className="text-gray-400">
+                    <span className="text-gray-400" data-testid="text-stats-expansion">
                       Expansion: <span className="text-yellow-400 font-semibold">{stats.ratio}%</span>
                     </span>
                   </div>
