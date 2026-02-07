@@ -26,7 +26,7 @@ const DEFAULT_OPTIONS: ObfuscationOptions = {
   encryptionRounds: 3,
 };
 
-const CUSTOM_ALPHABET = 'WOLF9876543210ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz+/=';
+const CUSTOM_ALPHABET = 'WOLFABCDEGHIJKMNPQRSTUVXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
 const STANDARD_B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
 
 function customB64Encode(str: string): string {
@@ -144,6 +144,19 @@ function splitStatements(code: string): string[] {
   return statements;
 }
 
+function interpretEscape(ch: string): string {
+  switch (ch) {
+    case 'n': return '\n';
+    case 't': return '\t';
+    case 'r': return '\r';
+    case '0': return '\0';
+    case 'b': return '\b';
+    case 'f': return '\f';
+    case 'v': return '\v';
+    default: return ch;
+  }
+}
+
 function extractStrings(code: string): { strings: string[]; code: string } {
   const strings: string[] = [];
   let modified = '';
@@ -157,16 +170,22 @@ function extractStrings(code: string): { strings: string[]; code: string } {
     const ch = code[i];
 
     if (escaped) {
-      if (inString) currentStr += ch;
-      else modified += ch;
+      if (inString) {
+        currentStr += interpretEscape(ch);
+      } else {
+        modified += ch;
+      }
       escaped = false;
       i++;
       continue;
     }
 
     if (ch === '\\') {
-      if (inString) currentStr += ch;
-      else modified += ch;
+      if (inString) {
+        // don't add backslash to currentStr - interpretEscape handles it
+      } else {
+        modified += ch;
+      }
       escaped = true;
       i++;
       continue;
@@ -244,9 +263,12 @@ function flattenControlFlow(code: string): string {
   }
 
   const cases = order.map((originalIdx, shuffledIdx) => {
-    const nextState = shuffledIdx < order.length - 1
-      ? `${stateVar}=${reverseMap[originalIdx + 1 < order.length ? originalIdx + 1 : -1] ?? -1}`
-      : `${whileVar}=false`;
+    let nextState: string;
+    if (originalIdx === order.length - 1) {
+      nextState = `${whileVar}=false`;
+    } else {
+      nextState = `${stateVar}=${reverseMap[originalIdx + 1]}`;
+    }
     return `case ${shuffledIdx}:${statements[originalIdx]};${nextState};break`;
   }).join(';');
 
@@ -274,6 +296,98 @@ function mangleIdentifiers(code: string): string {
     '_0xstrArr', '_0xstrDec', 'escape', 'unescape',
     'charCodeAt', 'fromCharCode', 'charAt', 'apply', 'call', 'bind',
     'fetch', 'Response', 'Request', 'Headers',
+    'log', 'warn', 'error', 'info', 'dir', 'table', 'trace', 'assert',
+    'require', 'module', 'exports', 'global', 'process',
+    'addEventListener', 'removeEventListener', 'querySelector', 'querySelectorAll',
+    'getElementById', 'getElementsByClassName', 'getElementsByTagName',
+    'createElement', 'appendChild', 'removeChild', 'insertBefore',
+    'innerHTML', 'outerHTML', 'textContent', 'innerText', 'style',
+    'className', 'classList', 'setAttribute', 'getAttribute', 'removeAttribute',
+    'parentNode', 'parentElement', 'childNodes', 'children', 'firstChild', 'lastChild',
+    'nextSibling', 'previousSibling', 'nextElementSibling', 'previousElementSibling',
+    'nodeName', 'nodeType', 'nodeValue',
+    'body', 'head', 'title', 'href', 'src', 'alt', 'type', 'name', 'value',
+    'checked', 'disabled', 'selected', 'hidden', 'id',
+    'target', 'action', 'method', 'submit', 'reset', 'focus', 'blur',
+    'click', 'change', 'input', 'keydown', 'keyup', 'keypress',
+    'mouseover', 'mouseout', 'mousedown', 'mouseup', 'mousemove',
+    'preventDefault', 'stopPropagation', 'currentTarget',
+    'location', 'hostname', 'pathname', 'protocol', 'port', 'hash', 'search',
+    'navigator', 'userAgent', 'platform', 'language',
+    'localStorage', 'sessionStorage', 'getItem', 'setItem', 'removeItem',
+    'then', 'catch', 'finally', 'resolve', 'reject', 'all', 'race',
+    'abs', 'ceil', 'floor', 'round', 'min', 'max', 'pow', 'sqrt', 'random',
+    'sin', 'cos', 'tan', 'atan2', 'PI', 'E',
+    'toFixed', 'toPrecision', 'toExponential',
+    'trim', 'trimStart', 'trimEnd', 'padStart', 'padEnd',
+    'startsWith', 'endsWith', 'repeat', 'substring', 'substr',
+    'toLowerCase', 'toUpperCase', 'localeCompare',
+    'concat', 'every', 'some', 'find', 'findIndex', 'fill', 'copyWithin',
+    'flat', 'flatMap', 'from', 'isArray', 'of',
+    'sort', 'reverse',
+    'stringify', 'parse',
+    'now', 'getTime', 'getFullYear', 'getMonth', 'getDate', 'getDay',
+    'getHours', 'getMinutes', 'getSeconds', 'getMilliseconds',
+    'toISOString', 'toLocaleDateString', 'toLocaleTimeString', 'toLocaleString',
+    'defineProperty', 'defineProperties', 'getOwnPropertyNames', 'getOwnPropertyDescriptor',
+    'getPrototypeOf', 'setPrototypeOf', 'is',
+    'Symbol', 'iterator', 'Map', 'Set', 'WeakMap', 'WeakSet',
+    'Proxy', 'Reflect', 'ArrayBuffer', 'DataView',
+    'Uint8Array', 'Int8Array', 'Uint16Array', 'Int16Array',
+    'Uint32Array', 'Int32Array', 'Float32Array', 'Float64Array',
+    'Infinity', 'NaN', 'globalThis',
+    'XMLHttpRequest', 'FormData', 'URL', 'URLSearchParams',
+    'Blob', 'File', 'FileReader', 'FileList',
+    'Image', 'Audio', 'Video', 'Canvas',
+    'requestAnimationFrame', 'cancelAnimationFrame',
+    'performance', 'alert', 'confirm', 'prompt',
+    'open', 'close', 'print', 'scroll', 'scrollTo', 'scrollBy',
+    'innerWidth', 'innerHeight', 'outerWidth', 'outerHeight',
+    'pageXOffset', 'pageYOffset', 'scrollX', 'scrollY',
+    'screen', 'width', 'height', 'availWidth', 'availHeight',
+    'history', 'back', 'forward', 'go', 'pushState', 'replaceState',
+    'onload', 'onerror', 'onresize', 'onscroll', 'onunload',
+    'item', 'index', 'count', 'size', 'data', 'result', 'status', 'message',
+    'callback', 'handler', 'listener', 'observer', 'options', 'config', 'params',
+    'text', 'json', 'blob', 'arrayBuffer', 'formData', 'clone',
+    'ok', 'statusText', 'headers', 'url', 'redirected',
+    'mode', 'credentials', 'cache', 'redirect', 'referrer', 'integrity',
+    'signal', 'keepalive',
+    'abort', 'AbortController', 'AbortSignal',
+    'dispatchEvent', 'CustomEvent', 'Event',
+    'MutationObserver', 'IntersectionObserver', 'ResizeObserver',
+    'observe', 'unobserve', 'disconnect',
+    'getComputedStyle', 'getBoundingClientRect',
+    'offsetTop', 'offsetLeft', 'offsetWidth', 'offsetHeight',
+    'clientTop', 'clientLeft', 'clientWidth', 'clientHeight',
+    'scrollTop', 'scrollLeft', 'scrollWidth', 'scrollHeight',
+    'display', 'position', 'top', 'left', 'right', 'bottom',
+    'margin', 'padding', 'border', 'background', 'color', 'font',
+    'opacity', 'visibility', 'overflow', 'zIndex', 'transform', 'transition',
+    'animation', 'cursor', 'pointerEvents', 'userSelect',
+    'content', 'label', 'placeholder', 'required', 'pattern',
+    'min', 'max', 'step', 'multiple', 'accept', 'readonly',
+    'role', 'tabIndex', 'accessKey',
+    'dataset', 'attributes', 'forms', 'images', 'links',
+    'cookie', 'referrer', 'domain', 'readyState',
+    'write', 'writeln', 'execCommand',
+    'selection', 'getSelection', 'createRange',
+    'DOMContentLoaded', 'load', 'unload', 'beforeunload',
+    'resize', 'orientationchange',
+    'online', 'offline',
+    'storage', 'popstate', 'hashchange',
+    'touchstart', 'touchmove', 'touchend', 'touchcancel',
+    'pointerdown', 'pointermove', 'pointerup', 'pointercancel',
+    'wheel', 'contextmenu', 'dblclick',
+    'dragstart', 'drag', 'dragenter', 'dragover', 'dragleave', 'drop', 'dragend',
+    'play', 'pause', 'ended', 'duration', 'currentTime', 'volume', 'muted',
+    'paused', 'loop', 'autoplay', 'controls', 'preload',
+    'requestFullscreen', 'exitFullscreen', 'fullscreenElement',
+    'postMessage', 'onmessage',
+    'Worker', 'SharedWorker', 'ServiceWorker',
+    'WebSocket', 'EventSource',
+    'crypto', 'subtle', 'getRandomValues',
+    'TextEncoder', 'TextDecoder', 'encode', 'decode',
   ]);
 
   let result = '';
@@ -295,11 +409,26 @@ function mangleIdentifiers(code: string): string {
   while ((m = paramRegex.exec(code)) !== null) {
     const params = m[1].split(',').map(p => p.trim()).filter(Boolean);
     for (const p of params) {
-      const name = p.replace(/\s*=.*$/, '').trim();
-      if (name && !reserved.has(name) && name.length > 1 && !name.startsWith('_0x')) {
-        declaredIdents.add(name);
+      const pName = p.replace(/\s*=.*$/, '').trim();
+      if (pName && !reserved.has(pName) && pName.length > 1 && !pName.startsWith('_0x')) {
+        declaredIdents.add(pName);
       }
     }
+  }
+
+  const propertyNames = new Set<string>();
+  const dotRegex = /\.([a-zA-Z_$][a-zA-Z0-9_$]*)/g;
+  while ((m = dotRegex.exec(code)) !== null) {
+    propertyNames.add(m[1]);
+  }
+  const keyRegex = /([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:/g;
+  while ((m = keyRegex.exec(code)) !== null) {
+    if (m[1] !== 'case' && m[1] !== 'default' && m[1] !== 'function') {
+      propertyNames.add(m[1]);
+    }
+  }
+  for (const prop of propertyNames) {
+    declaredIdents.delete(prop);
   }
 
   for (const ident of declaredIdents) {
@@ -339,11 +468,14 @@ function mangleIdentifiers(code: string): string {
 
     if (/[a-zA-Z_$]/.test(ch)) {
       let ident = '';
+      const identStart = result.length;
       while (i < code.length && /[a-zA-Z0-9_$]/.test(code[i])) {
         ident += code[i];
         i++;
       }
-      if (identMap.has(ident)) {
+      const prevChar = identStart > 0 ? result[identStart - 1] : '';
+      const isPropertyAccess = prevChar === '.';
+      if (identMap.has(ident) && !isPropertyAccess) {
         result += identMap.get(ident)!;
       } else {
         result += ident;
@@ -373,11 +505,13 @@ function addSelfDefense(code: string): string {
 }
 
 function addDebugProtection(code: string): string {
+  const fn1 = generateRandomName(6);
+  const fn2 = generateRandomName(6);
   const trap = `(function(){` +
-    `var _c=function(){try{(function _d(){return ('' + _d / _d)['length']!==1 || _d % 20 === 0` +
-    `?(function(){return true;})['constructor']('debugger')['call']('action'):` +
-    `(function(){return false;})['constructor']('debugger')['apply']('stateObject');` +
-    `_d();})();}catch(_e){}};_c();` +
+    `var ${fn1}=function(){` +
+    `try{(function(){return true;})['constructor']('debugger')['call']('action');}` +
+    `catch(_e){}};` +
+    `var ${fn2}=setInterval(function(){${fn1}();},0x${(Math.floor(Math.random()*4000)+2000).toString(16)});` +
     `})();`;
   return trap + code;
 }
@@ -385,7 +519,6 @@ function addDebugProtection(code: string): string {
 function addDomainLock(code: string, domain: string): string {
   if (!domain) return code;
   const encoded = customB64Encode(domain);
-  const decVar = generateRandomName(6);
   return `(function(){` +
     `var _b='${CUSTOM_ALPHABET}',_s2='${STANDARD_B64}',_e='${encoded}',_d='';` +
     `for(var _i=0;_i<_e.length;_i++){var _x=_b.indexOf(_e[_i]);_d+=_x>=0?_s2[_x]:_e[_i];}` +
@@ -486,11 +619,13 @@ function obfuscateJavaScript(code: string, options: ObfuscationOptions): string 
 
     if (options.deadCodeInjection) {
       const deadCodes = Array.from({ length: Math.floor(Math.random() * 3) + 2 }, generateDeadCode);
-      const insertPos = Math.floor(result.length / 2);
-      result = result.slice(0, insertPos) + deadCodes.join('') + result.slice(insertPos);
+      const statements = splitStatements(result);
+      const insertIdx = Math.max(1, Math.floor(statements.length / 2));
+      statements.splice(insertIdx, 0, ...deadCodes);
+      result = statements.join(';');
     }
 
-    if (options.identifierMangling && round < 2) {
+    if (options.identifierMangling && round === 0) {
       result = mangleIdentifiers(result);
     }
 
@@ -652,13 +787,13 @@ function obfuscateHTML(code: string, options: ObfuscationOptions): string {
 
   if (options.stringEncryption) {
     const textRegex = />([^<]{3,})</g;
-    let m;
+    let textMatch;
     const replacements: [string, string][] = [];
-    while ((m = textRegex.exec(result)) !== null) {
-      const text = m[1].trim();
+    while ((textMatch = textRegex.exec(result)) !== null) {
+      const text = textMatch[1].trim();
       if (text.length > 2) {
         const encoded = text.split('').map(c => `&#${c.charCodeAt(0)};`).join('');
-        replacements.push([`>${m[1]}<`, `>${encoded}<`]);
+        replacements.push([`>${textMatch[1]}<`, `>${encoded}<`]);
       }
     }
     for (const [from, to] of replacements) {
@@ -687,11 +822,11 @@ function obfuscateBatch(code: string, options: ObfuscationOptions): string {
     const varMap = new Map<string, string>();
     let match;
 
-    const reserved = new Set(['errorlevel', 'cd', 'date', 'time', 'random', 'path', 'pathext', 'comspec', 'os', 'userprofile', 'temp', 'tmp', 'homedrive', 'homepath', 'username', 'appdata', 'programfiles', 'systemroot', 'windir', 'counter']);
+    const batchReserved = new Set(['errorlevel', 'cd', 'date', 'time', 'random', 'path', 'pathext', 'comspec', 'os', 'userprofile', 'temp', 'tmp', 'homedrive', 'homepath', 'username', 'appdata', 'programfiles', 'systemroot', 'windir', 'counter']);
 
     while ((match = setRegex.exec(code)) !== null) {
       const v = match[1].toLowerCase();
-      if (!reserved.has(v) && !varMap.has(match[1])) {
+      if (!batchReserved.has(v) && !varMap.has(match[1])) {
         varMap.set(match[1], `_W${generateRandomName(4).replace(/[^a-zA-Z0-9_]/g, '')}`);
       }
     }
@@ -721,8 +856,8 @@ function obfuscateBatch(code: string, options: ObfuscationOptions): string {
       if (trimmed.startsWith('echo ')) {
         const msg = trimmed.slice(5);
         const encoded = msg.split('').map(c => {
-          const code = c.charCodeAt(0);
-          return `!_c${code}!`;
+          const charCode = c.charCodeAt(0);
+          return `!_c${charCode}!`;
         }).join('');
         return `echo ${encoded}`;
       }
@@ -734,14 +869,14 @@ function obfuscateBatch(code: string, options: ObfuscationOptions): string {
     for (const line of obfLines) {
       const matches = line.match(/!_c(\d+)!/g);
       if (matches) {
-        for (const m of matches) {
-          const code = parseInt(m.slice(3, -1));
-          usedCodes.add(code);
+        for (const codeMatch of matches) {
+          const charCode = parseInt(codeMatch.slice(3, -1));
+          usedCodes.add(charCode);
         }
       }
     }
-    for (const code of usedCodes) {
-      charSetup.push(`set "_c${code}=${String.fromCharCode(code)}"`);
+    for (const charCode of usedCodes) {
+      charSetup.push(`set "_c${charCode}=${String.fromCharCode(charCode)}"`);
     }
 
     if (charSetup.length > 0) {
