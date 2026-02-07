@@ -1,0 +1,118 @@
+Create a React + Vite application called "WOLF-OBFUSCATOR" with the EXACT SAME visual styling as the example provided:
+
+## EXACT STYLING SPECIFICATIONS (MUST MATCH PERFECTLY):
+
+### COLORS & THEME:
+- Primary background: `bg-black`
+- Card background: `bg-black/30 backdrop-blur-sm`
+- Primary accent: `#00ff00` (neon green)
+- Secondary accent: `#ff00ff` (magenta) for encryption indicators
+- Glow effects: `rgba(0,255,0,0.15)` and `rgba(255,0,255,0.15)`
+- Text: White for headings, gray-400/gray-500 for secondary
+- Font: Use 'font-mono' for all code/text areas
+- Border radius: `rounded-xl`
+- Hover effects: `hover:scale-[1.02] hover:border-primary/40 transition-all`
+
+### COMPONENT STYLING (CRITICAL - MUST MATCH):
+1. **Glass Cards**:
+   - `backdrop-blur-sm bg-black/30 border border-primary/20`
+   - `box-shadow: 0 0 40px rgba(0, 255, 0, 0.15)`
+   - Hover: `hover:border-primary/40 hover:scale-[1.02]`
+   - ArrowUpRight icons rotate 45deg on hover
+
+2. **Buttons**:
+   - Primary: `bg-primary/10 border border-primary/30 hover:bg-primary/20 hover:scale-105`
+   - Danger: `bg-red-500/10 border border-red-500/30 hover:bg-red-500/20`
+   - Success: `bg-green-500/10 border border-green-500/30 hover:bg-green-500/20`
+
+3. **Code Display**:
+   - Input: `font-mono bg-black/50 border border-primary/20 rounded-lg p-4`
+   - Output: `font-mono bg-gray-900/80 border border-purple-500/30 rounded-lg p-4`
+   - Line numbers: `text-gray-500 select-none`
+
+## APPLICATION: WOLF-OBFUSCATOR - STRONG CODE OBFUSCATOR
+
+### FEATURES REQUIRED:
+1. **Multiple Obfuscation Layers** (Must be impossible to deobfuscate):
+   - **JavaScript Obfuscation** (Primary focus)
+   - **CSS Obfuscation**
+   - **HTML Obfuscation**
+   - **Batch/Shell Script Obfuscation**
+
+2. **Advanced Obfuscation Techniques**:
+   - String encryption with custom algorithm
+   - Control flow flattening
+   - Dead code injection
+   - Identifier renaming (mangled)
+   - Variable splitting
+   - Array transformation
+   - Self-defending code
+   - Domain locking
+   - Debug protection
+
+3. **Security Features**:
+   - Anti-debugging traps
+   - Anti-tampering protection
+   - Code compression
+   - Base64 encoding with custom alphabet
+   - Multiple encryption rounds (3-5 layers)
+
+### OBFUSCATION ALGORITHMS TO IMPLEMENT:
+
+#### 1. JavaScript Obfuscator (Core Engine):
+```javascript
+class WolfObfuscator {
+  constructor() {
+    this.encryptionRounds = 5;
+    this.customAlphabet = 'WOLF9876543210ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz+/=';
+  }
+
+  // Layer 1: String Encryption
+  encryptStrings(code) {
+    // Custom XOR encryption with rotating keys
+    const keys = [0x55, 0xAA, 0x33, 0xCC, 0x66, 0x99];
+    return this.xorEncrypt(code, keys);
+  }
+
+  // Layer 2: Control Flow Flattening
+  flattenControlFlow(code) {
+    // Convert linear code to spaghetti code with switch statements
+    return this.createSpaghettiCode(code);
+  }
+
+  // Layer 3: Identifier Mangling
+  mangleIdentifiers(code) {
+    // Replace all identifiers with random Unicode/hex names
+    return this.replaceWithRandomNames(code);
+  }
+
+  // Layer 4: Dead Code Injection
+  injectDeadCode(code) {
+    // Add useless code that never executes but looks real
+    return this.addFakeFunctions(code);
+  }
+
+  // Layer 5: Self-Defending Wrapper
+  addSelfDefense(code) {
+    // Add anti-debugging and anti-tampering checks
+    return this.wrapWithProtection(code);
+  }
+
+  // Final: Multi-layer Obfuscation
+  obfuscate(code, options = {}) {
+    let result = code;
+    
+    // Apply multiple rounds of obfuscation
+    for (let i = 0; i < this.encryptionRounds; i++) {
+      result = this.encryptStrings(result);
+      result = this.flattenControlFlow(result);
+      result = this.mangleIdentifiers(result);
+      result = this.injectDeadCode(result);
+    }
+    
+    result = this.addSelfDefense(result);
+    result = this.compressCode(result);
+    
+    return this.encodeBase64Custom(result);
+  }
+}
