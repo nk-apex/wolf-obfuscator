@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Shield, Code2, Lock, Zap, Copy, Download, Trash2,
   Settings2, FileCode2, Eye,
-  Layers, Bug, Shuffle, Binary, Globe, ChevronDown,
+  Layers, Bug, Shuffle, Binary, Globe,
   Terminal, FileText, Braces, Hash
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
@@ -19,6 +19,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
 const SAMPLE_CODE: Record<Language, string> = {
   javascript: `// Example JavaScript code
@@ -131,7 +138,7 @@ export default function Home() {
   const [inputCode, setInputCode] = useState("");
   const [outputCode, setOutputCode] = useState("");
   const [isObfuscating, setIsObfuscating] = useState(false);
-  const [showSettings, setShowSettings] = useState(true);
+  const [showSettings, setShowSettings] = useState(false);
   const [options, setOptions] = useState<ObfuscationOptions>({ ...DEFAULT_OPTIONS });
   const [stats, setStats] = useState<{ original: number; obfuscated: number; ratio: number } | null>(null);
   const outputRef = useRef<HTMLTextAreaElement>(null);
@@ -260,8 +267,8 @@ export default function Home() {
         </section>
 
         <main className="max-w-7xl mx-auto px-4 sm:px-6 pb-16">
-          <div className="flex flex-col xl:flex-row gap-5">
-            <div className="flex-1 flex flex-col gap-5 min-w-0">
+          <div className="flex flex-col gap-5">
+            <div className="flex flex-col gap-5">
               <div className="flex items-center gap-3 flex-wrap">
                 <Select
                   value={options.language}
@@ -305,17 +312,78 @@ export default function Home() {
                   Load Sample
                 </Button>
 
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowSettings(!showSettings)}
-                  className="border-green-500/20 text-gray-400 bg-black/30 font-mono text-xs ml-auto"
-                  data-testid="button-toggle-settings"
-                >
-                  <Settings2 className="w-3.5 h-3.5 mr-1.5" />
-                  Settings
-                  <ChevronDown className={`w-3 h-3 ml-1 transition-transform ${showSettings ? "rotate-180" : ""}`} />
-                </Button>
+                <Dialog open={showSettings} onOpenChange={setShowSettings}>
+                  <DialogTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="border-green-500/20 text-gray-400 bg-black/30 font-mono text-xs ml-auto"
+                      data-testid="button-toggle-settings"
+                    >
+                      <Settings2 className="w-3.5 h-3.5 mr-1.5" />
+                      Settings
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="bg-gray-950 border-green-500/20 max-w-sm" data-testid="dialog-settings">
+                    <DialogHeader>
+                      <DialogTitle className="flex items-center gap-2 text-white font-mono text-sm">
+                        <Settings2 className="w-4 h-4 text-green-400" />
+                        Obfuscation Settings
+                      </DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 mt-2">
+                      <div>
+                        <label className="flex items-center justify-between mb-2">
+                          <span className="text-[11px] text-gray-400 flex items-center gap-1.5">
+                            <Layers className="w-3 h-3 text-green-400" />
+                            Encryption Rounds
+                          </span>
+                          <span className="text-xs text-green-400 font-bold">{options.encryptionRounds}</span>
+                        </label>
+                        <Slider
+                          value={[options.encryptionRounds]}
+                          onValueChange={([v]) => updateOption("encryptionRounds", v)}
+                          min={1}
+                          max={5}
+                          step={1}
+                          className="w-full"
+                          data-testid="slider-rounds"
+                        />
+                        <div className="flex justify-between mt-1">
+                          <span className="text-[9px] text-gray-700">Fast</span>
+                          <span className="text-[9px] text-gray-700">Maximum</span>
+                        </div>
+                      </div>
+
+                      <div className="h-px bg-green-500/10" />
+
+                      <SettingToggle icon={Lock} label="String Encryption" desc="XOR + custom Base64" checked={options.stringEncryption} onChange={(v) => updateOption("stringEncryption", v)} testId="toggle-string-encryption" />
+                      <SettingToggle icon={Shuffle} label="Control Flow Flattening" desc="Switch-based spaghetti" checked={options.controlFlowFlattening} onChange={(v) => updateOption("controlFlowFlattening", v)} testId="toggle-control-flow" />
+                      <SettingToggle icon={Bug} label="Dead Code Injection" desc="Fake decoy functions" checked={options.deadCodeInjection} onChange={(v) => updateOption("deadCodeInjection", v)} testId="toggle-dead-code" />
+                      <SettingToggle icon={Hash} label="Identifier Mangling" desc="Hex name replacement" checked={options.identifierMangling} onChange={(v) => updateOption("identifierMangling", v)} testId="toggle-identifier-mangling" />
+                      <SettingToggle icon={Shield} label="Self-Defending" desc="Anti-tampering wrapper" checked={options.selfDefending} onChange={(v) => updateOption("selfDefending", v)} testId="toggle-self-defending" />
+                      <SettingToggle icon={Eye} label="Debug Protection" desc="Anti-debugger traps" checked={options.debugProtection} onChange={(v) => updateOption("debugProtection", v)} testId="toggle-debug-protection" />
+                      <SettingToggle icon={Zap} label="Code Compression" desc="Minify whitespace" checked={options.compressCode} onChange={(v) => updateOption("compressCode", v)} testId="toggle-compression" />
+
+                      <div className="h-px bg-green-500/10" />
+
+                      <div>
+                        <label className="flex items-center gap-1.5 mb-1.5">
+                          <Globe className="w-3 h-3 text-purple-400" />
+                          <span className="text-[11px] text-gray-400">Domain Lock</span>
+                        </label>
+                        <Input
+                          value={options.domainLock}
+                          onChange={(e) => updateOption("domainLock", e.target.value)}
+                          placeholder="example.com"
+                          className="bg-black/50 border-green-500/15 text-green-400 font-mono text-xs placeholder:text-gray-700 focus-visible:ring-green-500/30 h-8"
+                          data-testid="input-domain-lock"
+                        />
+                        <p className="text-[9px] text-gray-700 mt-1">Lock code to specific domain</p>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
               </div>
 
               <div
@@ -452,122 +520,6 @@ export default function Home() {
               </div>
             </div>
 
-            {showSettings && (
-              <div className="xl:w-80 flex-shrink-0">
-                <div
-                  className="rounded-xl border border-green-500/15 bg-black/30 backdrop-blur-sm overflow-hidden sticky top-20"
-                  style={{ boxShadow: "0 0 40px rgba(0,255,0,0.04)" }}
-                >
-                  <div className="px-4 py-3 border-b border-green-500/10 bg-black/50">
-                    <div className="flex items-center gap-2">
-                      <Settings2 className="w-4 h-4 text-green-400" />
-                      <span className="text-xs font-semibold text-white">Obfuscation Settings</span>
-                    </div>
-                  </div>
-
-                  <div className="p-4 space-y-4">
-                    <div>
-                      <label className="flex items-center justify-between mb-2">
-                        <span className="text-[11px] text-gray-400 flex items-center gap-1.5">
-                          <Layers className="w-3 h-3 text-green-400" />
-                          Encryption Rounds
-                        </span>
-                        <span className="text-xs text-green-400 font-bold">{options.encryptionRounds}</span>
-                      </label>
-                      <Slider
-                        value={[options.encryptionRounds]}
-                        onValueChange={([v]) => updateOption("encryptionRounds", v)}
-                        min={1}
-                        max={5}
-                        step={1}
-                        className="w-full"
-                        data-testid="slider-rounds"
-                      />
-                      <div className="flex justify-between mt-1">
-                        <span className="text-[9px] text-gray-700">Fast</span>
-                        <span className="text-[9px] text-gray-700">Maximum</span>
-                      </div>
-                    </div>
-
-                    <div className="h-px bg-green-500/10" />
-
-                    <SettingToggle
-                      icon={Lock}
-                      label="String Encryption"
-                      desc="XOR + custom Base64"
-                      checked={options.stringEncryption}
-                      onChange={(v) => updateOption("stringEncryption", v)}
-                      testId="toggle-string-encryption"
-                    />
-                    <SettingToggle
-                      icon={Shuffle}
-                      label="Control Flow Flattening"
-                      desc="Switch-based spaghetti"
-                      checked={options.controlFlowFlattening}
-                      onChange={(v) => updateOption("controlFlowFlattening", v)}
-                      testId="toggle-control-flow"
-                    />
-                    <SettingToggle
-                      icon={Bug}
-                      label="Dead Code Injection"
-                      desc="Fake decoy functions"
-                      checked={options.deadCodeInjection}
-                      onChange={(v) => updateOption("deadCodeInjection", v)}
-                      testId="toggle-dead-code"
-                    />
-                    <SettingToggle
-                      icon={Hash}
-                      label="Identifier Mangling"
-                      desc="Hex name replacement"
-                      checked={options.identifierMangling}
-                      onChange={(v) => updateOption("identifierMangling", v)}
-                      testId="toggle-identifier-mangling"
-                    />
-                    <SettingToggle
-                      icon={Shield}
-                      label="Self-Defending"
-                      desc="Anti-tampering wrapper"
-                      checked={options.selfDefending}
-                      onChange={(v) => updateOption("selfDefending", v)}
-                      testId="toggle-self-defending"
-                    />
-                    <SettingToggle
-                      icon={Eye}
-                      label="Debug Protection"
-                      desc="Anti-debugger traps"
-                      checked={options.debugProtection}
-                      onChange={(v) => updateOption("debugProtection", v)}
-                      testId="toggle-debug-protection"
-                    />
-                    <SettingToggle
-                      icon={Zap}
-                      label="Code Compression"
-                      desc="Minify whitespace"
-                      checked={options.compressCode}
-                      onChange={(v) => updateOption("compressCode", v)}
-                      testId="toggle-compression"
-                    />
-
-                    <div className="h-px bg-green-500/10" />
-
-                    <div>
-                      <label className="flex items-center gap-1.5 mb-1.5">
-                        <Globe className="w-3 h-3 text-purple-400" />
-                        <span className="text-[11px] text-gray-400">Domain Lock</span>
-                      </label>
-                      <Input
-                        value={options.domainLock}
-                        onChange={(e) => updateOption("domainLock", e.target.value)}
-                        placeholder="example.com"
-                        className="bg-black/50 border-green-500/15 text-green-400 font-mono text-xs placeholder:text-gray-700 focus-visible:ring-green-500/30 h-8"
-                        data-testid="input-domain-lock"
-                      />
-                      <p className="text-[9px] text-gray-700 mt-1">Lock code to specific domain</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         </main>
 
