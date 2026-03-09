@@ -137,7 +137,7 @@ const LANGUAGE_INFO: Record<Language, { label: string; icon: typeof Code2; ext: 
 };
 
 type LogEntry = {
-  type: "log" | "warn" | "error" | "info" | "result" | "system";
+  type: "log" | "warn" | "error" | "info" | "result" | "system" | "debug";
   message: string;
   timestamp: string;
 };
@@ -148,34 +148,54 @@ const RUNNER_SANDBOX_HTML = `<!DOCTYPE html>
 <body>
 <script>
 (function() {
-  var send = function(type, args) {
-    var msg;
-    try { msg = Array.prototype.slice.call(args).map(function(a) {
-      if (typeof a === 'object' && a !== null) { try { return JSON.stringify(a, null, 2); } catch(e) { return String(a); } }
-      return String(a);
-    }).join(' '); } catch(e) { msg = String(args); }
-    window.parent.postMessage({ wolfRunner: true, type: type, message: msg }, '*');
+  var post = function(type, msg) {
+    window.parent.postMessage({ wolfRunner: true, type: type, message: String(msg) }, '*');
+  };
+  var argsToStr = function(args) {
+    try {
+      return Array.prototype.slice.call(args).map(function(a) {
+        if (typeof a === 'object' && a !== null) { try { return JSON.stringify(a, null, 2); } catch(x) { return String(a); } }
+        return String(a);
+      }).join(' ');
+    } catch(x) { return String(args); }
   };
   var origLog = console.log.bind(console);
   var origWarn = console.warn.bind(console);
   var origError = console.error.bind(console);
   var origInfo = console.info.bind(console);
-  console.log = function() { origLog.apply(console, arguments); send('log', arguments); };
-  console.warn = function() { origWarn.apply(console, arguments); send('warn', arguments); };
-  console.error = function() { origError.apply(console, arguments); send('error', arguments); };
-  console.info = function() { origInfo.apply(console, arguments); send('info', arguments); };
+  console.log = function() { origLog.apply(console, arguments); post('log', argsToStr(arguments)); };
+  console.warn = function() { origWarn.apply(console, arguments); post('warn', argsToStr(arguments)); };
+  console.error = function() { origError.apply(console, arguments); post('error', argsToStr(arguments)); };
+  console.info = function() { origInfo.apply(console, arguments); post('info', argsToStr(arguments)); };
   window.onerror = function(msg, src, line, col, err) {
-    send('error', [err ? (err.message || msg) : msg]);
+    var detail = err ? err.message : msg;
+    if (line) detail += ' (line ' + line + (col ? ', col ' + col : '') + ')';
+    post('error', detail);
     return true;
   };
   window.addEventListener('message', function(evt) {
     if (!evt.data || evt.data.wolfCode === undefined) return;
-    send('system', 'Execution started...');
+    var code = evt.data.wolfCode;
+    post('system', 'Execution started...');
     try {
-      eval(evt.data.wolfCode);
-      send('result', 'Execution completed successfully.');
+      new Function(code)();
+      post('result', 'Execution completed successfully.');
     } catch(e) {
-      send('error', 'Runtime error: ' + (e && e.message ? e.message : String(e)));
+      var name = (e && e.name) ? e.name : 'Error';
+      var msg = (e && e.message) ? e.message : String(e);
+      var loc = '';
+      if (e && e.lineNumber) loc += ' — line ' + e.lineNumber;
+      if (e && e.columnNumber) loc += ', col ' + e.columnNumber;
+      if (!loc && e && e.stack) {
+        var m = e.stack.match(/<anonymous>:(\\d+):(\\d+)/);
+        if (m) loc = ' — line ' + m[1] + ', col ' + m[2];
+      }
+      post('error', name + ': ' + msg + loc);
+      if (name === 'SyntaxError') {
+        var preview = code.split('\\n').slice(0, 5).join('\\n');
+        if (preview.length > 300) preview = preview.slice(0, 300) + '...';
+        post('debug', 'First 5 lines of obfuscated output:\\n' + preview);
+      }
     }
   });
   window.parent.postMessage({ wolfRunner: true, type: 'ready', message: '' }, '*');
@@ -729,12 +749,14 @@ export default function Home() {
                       {log.type === "info" && <ChevronRight className="w-3 h-3 text-blue-400 shrink-0 mt-0.5" />}
                       {log.type === "result" && <CheckCircle2 className="w-3 h-3 text-green-500 shrink-0 mt-0.5" />}
                       {log.type === "system" && <Terminal className="w-3 h-3 text-gray-500 shrink-0 mt-0.5" />}
+                      {log.type === "debug" && <Code2 className="w-3 h-3 text-orange-400 shrink-0 mt-0.5" />}
                       <span className={
                         log.type === "error" ? "text-red-400 whitespace-pre-wrap break-all" :
                         log.type === "warn" ? "text-yellow-400 whitespace-pre-wrap break-all" :
                         log.type === "result" ? "text-green-400 whitespace-pre-wrap break-all" :
                         log.type === "system" ? "text-gray-600 whitespace-pre-wrap break-all" :
                         log.type === "info" ? "text-blue-300 whitespace-pre-wrap break-all" :
+                        log.type === "debug" ? "text-orange-300/90 font-mono text-[9px] whitespace-pre-wrap break-all" :
                         "text-cyan-300/90 whitespace-pre-wrap break-all"
                       }>
                         {log.message}
