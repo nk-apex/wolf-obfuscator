@@ -2,7 +2,7 @@
 
 ## Overview
 
-WOLF-OBFUSCATOR is a client-side code obfuscation tool built as a full-stack web application. It provides multi-language code obfuscation (JavaScript, CSS, HTML, Batch/Shell) with advanced techniques like string encryption, control flow flattening, dead code injection, identifier mangling, self-defending code, and domain locking. The obfuscation logic runs entirely in the browser — the server primarily serves the frontend and provides a minimal API layer.
+WOLF-OBFUSCATOR is a client-side code obfuscation tool built as a full-stack web application. It provides multi-language code obfuscation (JavaScript, CSS, HTML, Batch/Shell) with advanced techniques: string encryption (XOR + rotated array), control flow flattening, dead code injection, identifier mangling, opaque predicates, hexadecimal number encoding, string splitting, bracket notation conversion, unicode escape encoding, self-defending code, and domain locking. The obfuscation logic runs entirely in the browser. A sandboxed code runner lets users execute obfuscated JavaScript in an iframe to verify functionality is preserved.
 
 The visual design follows a dark/hacker aesthetic with neon green (`#00ff00`) and magenta (`#ff00ff`) accents, glass-morphism cards, monospace fonts, and glow effects.
 

@@ -11,6 +11,11 @@ interface ObfuscationOptions {
   debugProtection: boolean;
   compressCode: boolean;
   encryptionRounds: number;
+  hexNumbers: boolean;
+  opaquePredicates: boolean;
+  unicodeEncoding: boolean;
+  bracketNotation: boolean;
+  stringSplitting: boolean;
 }
 
 const DEFAULT_OPTIONS: ObfuscationOptions = {
@@ -24,6 +29,11 @@ const DEFAULT_OPTIONS: ObfuscationOptions = {
   debugProtection: true,
   compressCode: true,
   encryptionRounds: 3,
+  hexNumbers: true,
+  opaquePredicates: true,
+  unicodeEncoding: false,
+  bracketNotation: true,
+  stringSplitting: true,
 };
 
 const CUSTOM_ALPHABET = 'WOLFABCDEGHIJKMNPQRSTUVXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
@@ -81,8 +91,109 @@ function generateDeadCode(): string {
       const v2 = generateRandomName(5);
       return `var ${v1}=function(${v2}){return typeof ${v2}==='undefined'?null:${v2};};`;
     },
+    () => {
+      const fn = generateRandomName(6);
+      const v1 = generateRandomName(4);
+      const a = Math.floor(Math.random() * 100);
+      const b = Math.floor(Math.random() * 100);
+      return `function ${fn}(${v1}){if((${a}*${b})!==${a*b+1}){return ${v1}+0x${Math.floor(Math.random()*255).toString(16)};}return ${v1};}`;
+    },
   ];
   return templates[Math.floor(Math.random() * templates.length)]();
+}
+
+function generateOpaquePredicates(): string {
+  const predicates = [
+    () => {
+      const v = generateRandomName(5);
+      const n = Math.floor(Math.random() * 100) + 1;
+      return `if(typeof ${v}==='undefined'||0x${(n*n).toString(16)}===0x${(n*n).toString(16)}){}`;
+    },
+    () => {
+      const a = Math.floor(Math.random() * 50) + 2;
+      const b = Math.floor(Math.random() * 50) + 2;
+      return `if(0x${(a*b).toString(16)}===0x${(a*b).toString(16)}){}`;
+    },
+    () => {
+      const v1 = generateRandomName(5);
+      return `var ${v1}=[];if(${v1}['length']===0x0){}`;
+    },
+    () => {
+      const v1 = generateRandomName(5);
+      const n = Math.floor(Math.random() * 100);
+      return `var ${v1}=0x${n.toString(16)};while(0x0>0x1){${v1}++;}`;
+    },
+  ];
+  return predicates[Math.floor(Math.random() * predicates.length)]();
+}
+
+function obfuscateNumbers(code: string): string {
+  return code.replace(/\b(\d+)\b/g, (match, numStr) => {
+    const n = parseInt(numStr, 10);
+    if (n > 1000000 || n < 0) return match;
+    if (n === 0) return '0x0';
+    if (n === 1) return '0x1';
+    const methods = [
+      () => `0x${n.toString(16)}`,
+      () => `0x${n.toString(16)}`,
+      () => {
+        const a = Math.floor(Math.random() * (n - 1)) + 1;
+        const b = n - a;
+        return `(0x${a.toString(16)}+0x${b.toString(16)})`;
+      },
+    ];
+    return methods[Math.floor(Math.random() * methods.length)]();
+  });
+}
+
+function encodeUnicode(str: string): string {
+  return str.split('').map(c => {
+    const code = c.charCodeAt(0);
+    if (code > 127 || Math.random() > 0.5) {
+      return `\\u${code.toString(16).padStart(4, '0')}`;
+    }
+    return c;
+  }).join('');
+}
+
+function splitStrings(code: string): string {
+  return code.replace(/(["'])([^'"]{8,})\1/g, (match, quote, str) => {
+    if (str.includes('\\') || str.includes('\n')) return match;
+    const mid = Math.floor(str.length / 2) + Math.floor(Math.random() * 4) - 2;
+    const safeMid = Math.max(2, Math.min(str.length - 2, mid));
+    const left = str.slice(0, safeMid);
+    const right = str.slice(safeMid);
+    return `(${quote}${left}${quote}+${quote}${right}${quote})`;
+  });
+}
+
+function convertBracketNotation(code: string): string {
+  let result = '';
+  let i = 0;
+  let inString: string | null = null;
+  let escaped = false;
+
+  while (i < code.length) {
+    const ch = code[i];
+    if (escaped) { result += ch; escaped = false; i++; continue; }
+    if (ch === '\\' && inString) { result += ch; escaped = true; i++; continue; }
+    if (inString) { result += ch; if (ch === inString) inString = null; i++; continue; }
+    if (ch === '"' || ch === "'" || ch === '`') { result += ch; inString = ch; i++; continue; }
+
+    if (ch === '.' && i + 1 < code.length && /[a-zA-Z_$]/.test(code[i + 1])) {
+      let prop = '';
+      let j = i + 1;
+      while (j < code.length && /[a-zA-Z0-9_$]/.test(code[j])) { prop += code[j]; j++; }
+      const nextCh = code[j];
+      if (nextCh !== '(' && prop.length > 2 && Math.random() > 0.4) {
+        result += `['${prop}']`;
+        i = j;
+        continue;
+      }
+    }
+    result += ch; i++;
+  }
+  return result;
 }
 
 function splitStatements(code: string): string[] {
@@ -94,52 +205,15 @@ function splitStatements(code: string): string[] {
 
   for (let i = 0; i < code.length; i++) {
     const ch = code[i];
-
-    if (escaped) {
-      current += ch;
-      escaped = false;
-      continue;
-    }
-
-    if (ch === '\\') {
-      current += ch;
-      escaped = true;
-      continue;
-    }
-
-    if (inString) {
-      current += ch;
-      if (ch === inString) inString = null;
-      continue;
-    }
-
-    if (ch === '"' || ch === "'" || ch === '`') {
-      current += ch;
-      inString = ch;
-      continue;
-    }
-
-    if (ch === '(' || ch === '{' || ch === '[') {
-      depth++;
-      current += ch;
-      continue;
-    }
-
-    if (ch === ')' || ch === '}' || ch === ']') {
-      depth--;
-      current += ch;
-      continue;
-    }
-
-    if (ch === ';' && depth === 0) {
-      if (current.trim()) statements.push(current.trim());
-      current = '';
-      continue;
-    }
-
+    if (escaped) { current += ch; escaped = false; continue; }
+    if (ch === '\\') { current += ch; escaped = true; continue; }
+    if (inString) { current += ch; if (ch === inString) inString = null; continue; }
+    if (ch === '"' || ch === "'" || ch === '`') { current += ch; inString = ch; continue; }
+    if (ch === '(' || ch === '{' || ch === '[') { depth++; current += ch; continue; }
+    if (ch === ')' || ch === '}' || ch === ']') { depth--; current += ch; continue; }
+    if (ch === ';' && depth === 0) { if (current.trim()) statements.push(current.trim()); current = ''; continue; }
     current += ch;
   }
-
   if (current.trim()) statements.push(current.trim());
   return statements;
 }
@@ -168,364 +242,126 @@ function extractStrings(code: string): { strings: string[]; code: string } {
 
   while (i < code.length) {
     const ch = code[i];
-
     if (escaped) {
-      if (inString) {
-        currentStr += interpretEscape(ch);
-      } else {
-        modified += ch;
-      }
-      escaped = false;
-      i++;
-      continue;
+      if (inString) { currentStr += interpretEscape(ch); } else { modified += ch; }
+      escaped = false; i++; continue;
     }
-
-    if (ch === '\\') {
-      if (inString) {
-        // don't add backslash to currentStr - interpretEscape handles it
-      } else {
-        modified += ch;
-      }
-      escaped = true;
-      i++;
-      continue;
-    }
-
+    if (ch === '\\') { if (!inString) modified += ch; escaped = true; i++; continue; }
     if (inString) {
       if (ch === inString) {
         if (currentStr.length > 0) {
           strings.push(currentStr);
           modified += `${arrName}[${strings.length - 1}]`;
-        } else {
-          modified += inString + inString;
-        }
-        currentStr = '';
-        inString = null;
-      } else {
-        currentStr += ch;
-      }
+        } else { modified += inString + inString; }
+        currentStr = ''; inString = null;
+      } else { currentStr += ch; }
     } else {
-      if (ch === '"' || ch === "'") {
-        inString = ch;
-        currentStr = '';
-      } else {
-        modified += ch;
-      }
+      if (ch === '"' || ch === "'") { inString = ch; currentStr = ''; } else { modified += ch; }
     }
     i++;
   }
-
-  if (inString) {
-    modified += inString + currentStr;
-  }
-
+  if (inString) modified += inString + currentStr;
   return { strings, code: modified };
 }
 
 function encryptStringArray(strings: string[], keys: number[]): string {
   const arrName = '_0xstrArr';
   const decFn = '_0xstrDec';
+  const rotFn = '_0xstrRot';
   const keyArr = `[${keys.join(',')}]`;
-
-  const encrypted = strings.map(s => {
-    const enc = xorEncrypt(s, keys);
-    return customB64Encode(enc);
-  });
-
-  const decoder = `var ${decFn}=function(_s,_k){` +
-    `var _r='',_b='${CUSTOM_ALPHABET}',_s2='${STANDARD_B64}',_d='';` +
-    `for(var _i=0;_i<_s.length;_i++){var _x=_b.indexOf(_s[_i]);_d+=_x>=0?_s2[_x]:_s[_i];}` +
-    `_d=decodeURIComponent(escape(atob(_d)));` +
-    `for(var _j=0;_j<_d.length;_j++){_r+=String.fromCharCode(_d.charCodeAt(_j)^_k[_j%_k.length]);}` +
-    `return _r;};`;
-
-  const arrDecl = `var ${arrName}=[${encrypted.map(e => `${decFn}('${e}',${keyArr})`).join(',')}];`;
-
-  return decoder + arrDecl;
+  const rotOffset = Math.floor(Math.random() * strings.length) + 1;
+  const encrypted = strings.map(s => customB64Encode(xorEncrypt(s, keys)));
+  const rotated = [...encrypted.slice(rotOffset), ...encrypted.slice(0, rotOffset)];
+  const decoder = `var ${decFn}=function(_s,_k){var _r='',_b='${CUSTOM_ALPHABET}',_s2='${STANDARD_B64}',_d='';for(var _i=0;_i<_s['length'];_i++){var _x=_b['indexOf'](_s[_i]);_d+=_x>=0?_s2[_x]:_s[_i];}_d=decodeURIComponent(escape(atob(_d)));for(var _j=0;_j<_d['length'];_j++){_r+=String['fromCharCode'](_d['charCodeAt'](_j)^_k[_j%_k['length']]);}return _r;};`;
+  const rotDecoder = `var ${rotFn}=function(_arr,_off){_arr['push'](_arr['shift']());};`;
+  const arrDecl = `var ${arrName}=[${rotated.map(e => `${decFn}('${e}',${keyArr})`).join(',')}];`;
+  const unrot = `for(var _ri=0;_ri<0x${rotOffset.toString(16)};_ri++){${rotFn}(${arrName});}`;
+  return decoder + rotDecoder + arrDecl + unrot;
 }
 
 function flattenControlFlow(code: string): string {
   const statements = splitStatements(code);
   if (statements.length < 3) return code;
-
   const stateVar = generateRandomName(6);
   const whileVar = generateRandomName(4);
-
   const order = Array.from({ length: statements.length }, (_, i) => i);
   for (let i = order.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [order[i], order[j]] = [order[j], order[i]];
   }
-
   const reverseMap = new Array(order.length);
-  for (let i = 0; i < order.length; i++) {
-    reverseMap[order[i]] = i;
-  }
-
+  for (let i = 0; i < order.length; i++) reverseMap[order[i]] = i;
   const cases = order.map((originalIdx, shuffledIdx) => {
-    let nextState: string;
-    if (originalIdx === order.length - 1) {
-      nextState = `${whileVar}=false`;
-    } else {
-      nextState = `${stateVar}=${reverseMap[originalIdx + 1]}`;
-    }
+    let nextState = originalIdx === order.length - 1 ? `${whileVar}=false` : `${stateVar}=${reverseMap[originalIdx + 1]}`;
     return `case ${shuffledIdx}:${statements[originalIdx]};${nextState};break`;
   }).join(';');
-
   return `var ${stateVar}=${reverseMap[0]},${whileVar}=true;while(${whileVar}){switch(${stateVar}){${cases};}}`;
 }
 
 function mangleIdentifiers(code: string): string {
-  const reserved = new Set([
-    'var', 'let', 'const', 'function', 'return', 'if', 'else', 'for', 'while',
-    'do', 'switch', 'case', 'break', 'continue', 'new', 'delete', 'typeof',
-    'instanceof', 'void', 'this', 'throw', 'try', 'catch', 'finally', 'class',
-    'extends', 'super', 'import', 'export', 'default', 'from', 'as', 'true',
-    'false', 'null', 'undefined', 'in', 'of', 'with', 'debugger', 'yield',
-    'await', 'async', 'static', 'get', 'set', 'arguments', 'eval',
-    'console', 'window', 'document', 'Math', 'Date', 'Array', 'Object',
-    'String', 'Number', 'Boolean', 'RegExp', 'Error', 'JSON', 'Promise',
-    'parseInt', 'parseFloat', 'isNaN', 'isFinite', 'encodeURIComponent',
-    'decodeURIComponent', 'encodeURI', 'decodeURI', 'atob', 'btoa',
-    'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval',
-    'prototype', 'constructor', 'toString', 'valueOf', 'hasOwnProperty',
-    'length', 'push', 'pop', 'shift', 'unshift', 'splice', 'slice',
-    'map', 'filter', 'reduce', 'forEach', 'indexOf', 'includes',
-    'join', 'split', 'replace', 'match', 'test', 'exec', 'keys',
-    'values', 'entries', 'assign', 'freeze', 'create',
-    '_0xstrArr', '_0xstrDec', 'escape', 'unescape',
-    'charCodeAt', 'fromCharCode', 'charAt', 'apply', 'call', 'bind',
-    'fetch', 'Response', 'Request', 'Headers',
-    'log', 'warn', 'error', 'info', 'dir', 'table', 'trace', 'assert',
-    'require', 'module', 'exports', 'global', 'process',
-    'addEventListener', 'removeEventListener', 'querySelector', 'querySelectorAll',
-    'getElementById', 'getElementsByClassName', 'getElementsByTagName',
-    'createElement', 'appendChild', 'removeChild', 'insertBefore',
-    'innerHTML', 'outerHTML', 'textContent', 'innerText', 'style',
-    'className', 'classList', 'setAttribute', 'getAttribute', 'removeAttribute',
-    'parentNode', 'parentElement', 'childNodes', 'children', 'firstChild', 'lastChild',
-    'nextSibling', 'previousSibling', 'nextElementSibling', 'previousElementSibling',
-    'nodeName', 'nodeType', 'nodeValue',
-    'body', 'head', 'title', 'href', 'src', 'alt', 'type', 'name', 'value',
-    'checked', 'disabled', 'selected', 'hidden', 'id',
-    'target', 'action', 'method', 'submit', 'reset', 'focus', 'blur',
-    'click', 'change', 'input', 'keydown', 'keyup', 'keypress',
-    'mouseover', 'mouseout', 'mousedown', 'mouseup', 'mousemove',
-    'preventDefault', 'stopPropagation', 'currentTarget',
-    'location', 'hostname', 'pathname', 'protocol', 'port', 'hash', 'search',
-    'navigator', 'userAgent', 'platform', 'language',
-    'localStorage', 'sessionStorage', 'getItem', 'setItem', 'removeItem',
-    'then', 'catch', 'finally', 'resolve', 'reject', 'all', 'race',
-    'abs', 'ceil', 'floor', 'round', 'min', 'max', 'pow', 'sqrt', 'random',
-    'sin', 'cos', 'tan', 'atan2', 'PI', 'E',
-    'toFixed', 'toPrecision', 'toExponential',
-    'trim', 'trimStart', 'trimEnd', 'padStart', 'padEnd',
-    'startsWith', 'endsWith', 'repeat', 'substring', 'substr',
-    'toLowerCase', 'toUpperCase', 'localeCompare',
-    'concat', 'every', 'some', 'find', 'findIndex', 'fill', 'copyWithin',
-    'flat', 'flatMap', 'from', 'isArray', 'of',
-    'sort', 'reverse',
-    'stringify', 'parse',
-    'now', 'getTime', 'getFullYear', 'getMonth', 'getDate', 'getDay',
-    'getHours', 'getMinutes', 'getSeconds', 'getMilliseconds',
-    'toISOString', 'toLocaleDateString', 'toLocaleTimeString', 'toLocaleString',
-    'defineProperty', 'defineProperties', 'getOwnPropertyNames', 'getOwnPropertyDescriptor',
-    'getPrototypeOf', 'setPrototypeOf', 'is',
-    'Symbol', 'iterator', 'Map', 'Set', 'WeakMap', 'WeakSet',
-    'Proxy', 'Reflect', 'ArrayBuffer', 'DataView',
-    'Uint8Array', 'Int8Array', 'Uint16Array', 'Int16Array',
-    'Uint32Array', 'Int32Array', 'Float32Array', 'Float64Array',
-    'Infinity', 'NaN', 'globalThis',
-    'XMLHttpRequest', 'FormData', 'URL', 'URLSearchParams',
-    'Blob', 'File', 'FileReader', 'FileList',
-    'Image', 'Audio', 'Video', 'Canvas',
-    'requestAnimationFrame', 'cancelAnimationFrame',
-    'performance', 'alert', 'confirm', 'prompt',
-    'open', 'close', 'print', 'scroll', 'scrollTo', 'scrollBy',
-    'innerWidth', 'innerHeight', 'outerWidth', 'outerHeight',
-    'pageXOffset', 'pageYOffset', 'scrollX', 'scrollY',
-    'screen', 'width', 'height', 'availWidth', 'availHeight',
-    'history', 'back', 'forward', 'go', 'pushState', 'replaceState',
-    'onload', 'onerror', 'onresize', 'onscroll', 'onunload',
-    'item', 'index', 'count', 'size', 'data', 'result', 'status', 'message',
-    'callback', 'handler', 'listener', 'observer', 'options', 'config', 'params',
-    'text', 'json', 'blob', 'arrayBuffer', 'formData', 'clone',
-    'ok', 'statusText', 'headers', 'url', 'redirected',
-    'mode', 'credentials', 'cache', 'redirect', 'referrer', 'integrity',
-    'signal', 'keepalive',
-    'abort', 'AbortController', 'AbortSignal',
-    'dispatchEvent', 'CustomEvent', 'Event',
-    'MutationObserver', 'IntersectionObserver', 'ResizeObserver',
-    'observe', 'unobserve', 'disconnect',
-    'getComputedStyle', 'getBoundingClientRect',
-    'offsetTop', 'offsetLeft', 'offsetWidth', 'offsetHeight',
-    'clientTop', 'clientLeft', 'clientWidth', 'clientHeight',
-    'scrollTop', 'scrollLeft', 'scrollWidth', 'scrollHeight',
-    'display', 'position', 'top', 'left', 'right', 'bottom',
-    'margin', 'padding', 'border', 'background', 'color', 'font',
-    'opacity', 'visibility', 'overflow', 'zIndex', 'transform', 'transition',
-    'animation', 'cursor', 'pointerEvents', 'userSelect',
-    'content', 'label', 'placeholder', 'required', 'pattern',
-    'min', 'max', 'step', 'multiple', 'accept', 'readonly',
-    'role', 'tabIndex', 'accessKey',
-    'dataset', 'attributes', 'forms', 'images', 'links',
-    'cookie', 'referrer', 'domain', 'readyState',
-    'write', 'writeln', 'execCommand',
-    'selection', 'getSelection', 'createRange',
-    'DOMContentLoaded', 'load', 'unload', 'beforeunload',
-    'resize', 'orientationchange',
-    'online', 'offline',
-    'storage', 'popstate', 'hashchange',
-    'touchstart', 'touchmove', 'touchend', 'touchcancel',
-    'pointerdown', 'pointermove', 'pointerup', 'pointercancel',
-    'wheel', 'contextmenu', 'dblclick',
-    'dragstart', 'drag', 'dragenter', 'dragover', 'dragleave', 'drop', 'dragend',
-    'play', 'pause', 'ended', 'duration', 'currentTime', 'volume', 'muted',
-    'paused', 'loop', 'autoplay', 'controls', 'preload',
-    'requestFullscreen', 'exitFullscreen', 'fullscreenElement',
-    'postMessage', 'onmessage',
-    'Worker', 'SharedWorker', 'ServiceWorker',
-    'WebSocket', 'EventSource',
-    'crypto', 'subtle', 'getRandomValues',
-    'TextEncoder', 'TextDecoder', 'encode', 'decode',
-  ]);
-
+  const reserved = new Set(['var','let','const','function','return','if','else','for','while','do','switch','case','break','continue','new','delete','typeof','instanceof','void','this','throw','try','catch','finally','class','extends','super','import','export','default','from','as','true','false','null','undefined','in','of','with','debugger','yield','await','async','static','get','set','arguments','eval','console','window','document','Math','Date','Array','Object','String','Number','Boolean','RegExp','Error','JSON','Promise','parseInt','parseFloat','isNaN','isFinite','encodeURIComponent','decodeURIComponent','encodeURI','decodeURI','atob','btoa','setTimeout','setInterval','clearTimeout','clearInterval','prototype','constructor','toString','valueOf','hasOwnProperty','length','push','pop','shift','unshift','splice','slice','map','filter','reduce','forEach','indexOf','includes','join','split','replace','match','test','exec','keys','values','entries','assign','freeze','create','_0xstrArr','_0xstrDec','_0xstrRot','escape','unescape','charCodeAt','fromCharCode','charAt','apply','call','bind','fetch','Response','Request','Headers','log','warn','error','info','dir','table','trace','assert','require','module','exports','global','process','addEventListener','removeEventListener','querySelector','querySelectorAll','getElementById','getElementsByClassName','getElementsByTagName','createElement','appendChild','removeChild','insertBefore','innerHTML','outerHTML','textContent','innerText','style','className','classList','setAttribute','getAttribute','removeAttribute','parentNode','parentElement','childNodes','children','firstChild','lastChild','nextSibling','previousSibling','nextElementSibling','previousElementSibling','nodeName','nodeType','nodeValue','body','head','title','href','src','alt','type','name','value','checked','disabled','selected','hidden','id','target','action','method','submit','reset','focus','blur','click','change','input','keydown','keyup','keypress','mouseover','mouseout','mousedown','mouseup','mousemove','preventDefault','stopPropagation','currentTarget','location','hostname','pathname','protocol','port','hash','search','navigator','userAgent','platform','language','localStorage','sessionStorage','getItem','setItem','removeItem','then','catch','finally','resolve','reject','all','race','abs','ceil','floor','round','min','max','pow','sqrt','random','sin','cos','tan','atan2','PI','E','toFixed','toPrecision','toExponential','trim','trimStart','trimEnd','padStart','padEnd','startsWith','endsWith','repeat','substring','substr','toLowerCase','toUpperCase','localeCompare','concat','every','some','find','findIndex','fill','copyWithin','flat','flatMap','isArray','of','sort','reverse','stringify','parse','now','getTime','getFullYear','getMonth','getDate','getDay','getHours','getMinutes','getSeconds','getMilliseconds','toISOString','toLocaleDateString','toLocaleTimeString','toLocaleString','defineProperty','defineProperties','getOwnPropertyNames','getOwnPropertyDescriptor','getPrototypeOf','setPrototypeOf','is','Symbol','iterator','Map','Set','WeakMap','WeakSet','Proxy','Reflect','ArrayBuffer','DataView','Uint8Array','Int8Array','Uint16Array','Int16Array','Uint32Array','Int32Array','Float32Array','Float64Array','Infinity','NaN','globalThis','XMLHttpRequest','FormData','URL','URLSearchParams','Blob','File','FileReader','FileList','Image','Audio','Video','Canvas','requestAnimationFrame','cancelAnimationFrame','performance','alert','confirm','prompt','open','close','print','scroll','scrollTo','scrollBy','innerWidth','innerHeight','outerWidth','outerHeight','pageXOffset','pageYOffset','scrollX','scrollY','screen','width','height','availWidth','availHeight','history','back','forward','go','pushState','replaceState','onload','onerror','onresize','onscroll','onunload','item','index','count','size','data','result','status','message','callback','handler','listener','observer','options','config','params','text','json','blob','arrayBuffer','formData','clone','ok','statusText','headers','url','redirected','mode','credentials','cache','redirect','referrer','integrity','signal','keepalive','abort','AbortController','AbortSignal','dispatchEvent','CustomEvent','Event','MutationObserver','IntersectionObserver','ResizeObserver','observe','unobserve','disconnect','getComputedStyle','getBoundingClientRect','offsetTop','offsetLeft','offsetWidth','offsetHeight','clientTop','clientLeft','clientWidth','clientHeight','scrollTop','scrollLeft','scrollWidth','scrollHeight','display','position','top','left','right','bottom','margin','padding','border','background','color','font','opacity','visibility','overflow','zIndex','transform','transition','animation','cursor','pointerEvents','userSelect','content','label','placeholder','required','pattern','step','multiple','accept','readonly','role','tabIndex','accessKey','dataset','attributes','forms','images','links','cookie','domain','readyState','write','writeln','execCommand','selection','getSelection','createRange','DOMContentLoaded','load','unload','beforeunload','resize','orientationchange','online','offline','storage','popstate','hashchange','touchstart','touchmove','touchend','touchcancel','pointerdown','pointermove','pointerup','pointercancel','wheel','contextmenu','dblclick','dragstart','drag','dragenter','dragover','dragleave','drop','dragend','play','pause','ended','duration','currentTime','volume','muted','paused','loop','autoplay','controls','preload','requestFullscreen','exitFullscreen','fullscreenElement','postMessage','onmessage','Worker','SharedWorker','ServiceWorker','WebSocket','EventSource','crypto','subtle','getRandomValues','TextEncoder','TextDecoder','encode','decode']);
   let result = '';
   let i = 0;
   let inString: string | null = null;
   let escaped = false;
   const identMap = new Map<string, string>();
-
   const declareRegex = /(?:var|let|const|function)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g;
   const paramRegex = /function\s*[a-zA-Z_$]*\s*\(([^)]*)\)/g;
   const declaredIdents = new Set<string>();
-
   let m;
-  while ((m = declareRegex.exec(code)) !== null) {
-    if (!reserved.has(m[1]) && m[1].length > 1 && !m[1].startsWith('_0x') && !m[1].startsWith('_$') && !m[1].startsWith('$_')) {
-      declaredIdents.add(m[1]);
-    }
-  }
+  while ((m = declareRegex.exec(code)) !== null) if (!reserved.has(m[1]) && m[1].length > 1 && !m[1].startsWith('_0x') && !m[1].startsWith('_$') && !m[1].startsWith('$_')) declaredIdents.add(m[1]);
   while ((m = paramRegex.exec(code)) !== null) {
     const params = m[1].split(',').map(p => p.trim()).filter(Boolean);
     for (const p of params) {
       const pName = p.replace(/\s*=.*$/, '').trim();
-      if (pName && !reserved.has(pName) && pName.length > 1 && !pName.startsWith('_0x')) {
-        declaredIdents.add(pName);
-      }
+      if (pName && !reserved.has(pName) && pName.length > 1 && !pName.startsWith('_0x')) declaredIdents.add(pName);
     }
   }
-
   const propertyNames = new Set<string>();
   const dotRegex = /\.([a-zA-Z_$][a-zA-Z0-9_$]*)/g;
-  while ((m = dotRegex.exec(code)) !== null) {
-    propertyNames.add(m[1]);
-  }
+  while ((m = dotRegex.exec(code)) !== null) propertyNames.add(m[1]);
   const keyRegex = /([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:/g;
-  while ((m = keyRegex.exec(code)) !== null) {
-    if (m[1] !== 'case' && m[1] !== 'default' && m[1] !== 'function') {
-      propertyNames.add(m[1]);
-    }
-  }
-  for (const prop of propertyNames) {
-    declaredIdents.delete(prop);
-  }
-
-  for (const ident of declaredIdents) {
-    identMap.set(ident, generateRandomName(8));
-  }
+  while ((m = keyRegex.exec(code)) !== null) if (m[1] !== 'case' && m[1] !== 'default' && m[1] !== 'function') propertyNames.add(m[1]);
+  for (const prop of propertyNames) declaredIdents.delete(prop);
+  for (const ident of declaredIdents) identMap.set(ident, generateRandomName(8));
 
   while (i < code.length) {
     const ch = code[i];
-
-    if (escaped) {
-      result += ch;
-      escaped = false;
-      i++;
-      continue;
-    }
-
-    if (ch === '\\') {
-      result += ch;
-      escaped = true;
-      i++;
-      continue;
-    }
-
-    if (inString) {
-      result += ch;
-      if (ch === inString) inString = null;
-      i++;
-      continue;
-    }
-
-    if (ch === '"' || ch === "'" || ch === '`') {
-      result += ch;
-      inString = ch;
-      i++;
-      continue;
-    }
-
+    if (escaped) { result += ch; escaped = false; i++; continue; }
+    if (ch === '\\') { result += ch; escaped = true; i++; continue; }
+    if (inString) { result += ch; if (ch === inString) inString = null; i++; continue; }
+    if (ch === '"' || ch === "'" || ch === '`') { result += ch; inString = ch; i++; continue; }
     if (/[a-zA-Z_$]/.test(ch)) {
       let ident = '';
       const identStart = result.length;
-      while (i < code.length && /[a-zA-Z0-9_$]/.test(code[i])) {
-        ident += code[i];
-        i++;
-      }
+      while (i < code.length && /[a-zA-Z0-9_$]/.test(code[i])) { ident += code[i]; i++; }
       const prevChar = identStart > 0 ? result[identStart - 1] : '';
-      const isPropertyAccess = prevChar === '.';
-      if (identMap.has(ident) && !isPropertyAccess) {
-        result += identMap.get(ident)!;
-      } else {
-        result += ident;
-      }
+      if (identMap.has(ident) && prevChar !== '.') { result += identMap.get(ident)!; } else { result += ident; }
       continue;
     }
-
-    result += ch;
-    i++;
+    result += ch; i++;
   }
-
   return result;
 }
 
 function addSelfDefense(code: string): string {
   const checkFn = generateRandomName(8);
   const timerFn = generateRandomName(8);
-
-  const selfDefense = `(function(){` +
-    `var ${checkFn}=function(){` +
-    `try{(function(){return false;})['constructor']('debugger')['apply']('stateObject');}` +
-    `catch(_e){}};` +
-    `var ${timerFn}=setInterval(function(){${checkFn}();},0x${(Math.floor(Math.random()*3000)+1000).toString(16)});` +
-    `})();`;
-
+  const selfDefense = `(function(){var ${checkFn}=function(){try{(function(){return false;})['constructor']('debugger')['apply']('stateObject');}catch(_e){}};var ${timerFn}=setInterval(function(){${checkFn}();},0x${(Math.floor(Math.random()*3000)+1000).toString(16)});})();`;
   return selfDefense + code;
 }
 
 function addDebugProtection(code: string): string {
   const fn1 = generateRandomName(6);
   const fn2 = generateRandomName(6);
-  const trap = `(function(){` +
-    `var ${fn1}=function(){` +
-    `try{(function(){return true;})['constructor']('debugger')['call']('action');}` +
-    `catch(_e){}};` +
-    `var ${fn2}=setInterval(function(){${fn1}();},0x${(Math.floor(Math.random()*4000)+2000).toString(16)});` +
-    `})();`;
+  const trap = `(function(){var ${fn1}=function(){try{(function(){return true;})['constructor']('debugger')['call']('action');}catch(_e){}};var ${fn2}=setInterval(function(){${fn1}();},0x${(Math.floor(Math.random()*4000)+2000).toString(16)});})();`;
   return trap + code;
 }
 
 function addDomainLock(code: string, domain: string): string {
   if (!domain) return code;
   const encoded = customB64Encode(domain);
-  return `(function(){` +
-    `var _b='${CUSTOM_ALPHABET}',_s2='${STANDARD_B64}',_e='${encoded}',_d='';` +
-    `for(var _i=0;_i<_e.length;_i++){var _x=_b.indexOf(_e[_i]);_d+=_x>=0?_s2[_x]:_e[_i];}` +
-    `_d=decodeURIComponent(escape(atob(_d)));` +
-    `var _h=typeof window!=='undefined'?window['location']['hostname']:'';` +
-    `if(_h&&_h.indexOf(_d)===-1){while(true){}}` +
-    `})();` + code;
+  return `(function(){var _b='${CUSTOM_ALPHABET}',_s2='${STANDARD_B64}',_e='${encoded}',_d='';for(var _i=0;_i<_e['length'];_i++){var _x=_b['indexOf'](_e[_i]);_d+=_x>=0?_s2[_x]:_e[_i];}_d=decodeURIComponent(escape(atob(_d)));var _h=typeof window!=='undefined'?window['location']['hostname']:'';if(_h&&_h['indexOf'](_d)===-1){while(true){}}})();` + code;
 }
 
 function compressWhitespace(code: string): string {
@@ -533,437 +369,219 @@ function compressWhitespace(code: string): string {
   let inString: string | null = null;
   let escaped = false;
   let lastWasSpace = false;
-
   for (let i = 0; i < code.length; i++) {
     const ch = code[i];
-
-    if (escaped) {
-      result += ch;
-      escaped = false;
-      continue;
-    }
-
-    if (ch === '\\' && inString) {
-      result += ch;
-      escaped = true;
-      continue;
-    }
-
-    if (inString) {
-      result += ch;
-      if (ch === inString) inString = null;
-      continue;
-    }
-
-    if (ch === '"' || ch === "'" || ch === '`') {
-      result += ch;
-      inString = ch;
-      lastWasSpace = false;
-      continue;
-    }
-
-    if (ch === '/' && i + 1 < code.length && code[i + 1] === '/') {
-      while (i < code.length && code[i] !== '\n') i++;
-      continue;
-    }
-
-    if (ch === '/' && i + 1 < code.length && code[i + 1] === '*') {
-      i += 2;
-      while (i < code.length - 1 && !(code[i] === '*' && code[i + 1] === '/')) i++;
-      i++;
-      continue;
-    }
-
+    if (escaped) { result += ch; escaped = false; continue; }
+    if (ch === '\\' && inString) { result += ch; escaped = true; continue; }
+    if (inString) { result += ch; if (ch === inString) inString = null; continue; }
+    if (ch === '"' || ch === "'" || ch === '`') { result += ch; inString = ch; lastWasSpace = false; continue; }
+    if (ch === '/' && i + 1 < code.length && code[i + 1] === '/') { while (i < code.length && code[i] !== '\n') i++; continue; }
+    if (ch === '/' && i + 1 < code.length && code[i + 1] === '*') { i += 2; while (i < code.length - 1 && !(code[i] === '*' && code[i + 1] === '/')) i++; i++; continue; }
     if (/\s/.test(ch)) {
       if (!lastWasSpace && result.length > 0) {
-        const lastChar = result[result.length - 1];
-        if (/[a-zA-Z0-9_$]/.test(lastChar)) {
-          result += ' ';
-          lastWasSpace = true;
-        }
+        if (/[a-zA-Z0-9_$]/.test(result[result.length - 1])) { result += ' '; lastWasSpace = true; }
       }
       continue;
     }
-
-    lastWasSpace = false;
-    result += ch;
+    lastWasSpace = false; result += ch;
   }
-
   return result.trim();
 }
 
 function wrapInEval(code: string): string {
   const encoded = customB64Encode(code);
   const decFn = generateRandomName(8);
-  return `(function(){` +
-    `var ${decFn}=function(_s){var _b='${CUSTOM_ALPHABET}',_s2='${STANDARD_B64}',_d='';` +
-    `for(var _i=0;_i<_s.length;_i++){var _x=_b.indexOf(_s[_i]);_d+=_x>=0?_s2[_x]:_s[_i];}` +
-    `return decodeURIComponent(escape(atob(_d)));};` +
-    `eval(${decFn}('${encoded}'));` +
-    `})();`;
+  return `(function(){var ${decFn}=function(_s){var _b='${CUSTOM_ALPHABET}',_s2='${STANDARD_B64}',_d='';for(var _i=0;_i<_s['length'];_i++){var _x=_b['indexOf'](_s[_i]);_d+=_x>=0?_s2[_x]:_s[_i];}return decodeURIComponent(escape(atob(_d)));};eval(${decFn}('${encoded}'));})();`;
 }
 
 function extractModuleStatements(code: string): { imports: string[]; exports: string[]; body: string } {
   const imports: string[] = [];
   const exports: string[] = [];
   const bodyLines: string[] = [];
-
   const lines = code.split('\n');
   let pendingImport = '';
-
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
-
     if (pendingImport) {
       pendingImport += ' ' + trimmed;
-      if (trimmed.includes(';') || trimmed.includes('from ') || /from\s+['"]/.test(trimmed)) {
-        imports.push(pendingImport);
-        pendingImport = '';
-      }
+      if (trimmed.includes(';') || trimmed.includes('from ') || /from\s+['"]/.test(trimmed)) { imports.push(pendingImport); pendingImport = ''; }
       continue;
     }
-
     if (/^import\s/.test(trimmed) && !trimmed.startsWith('import(')) {
-      if (trimmed.includes('from ') || trimmed.includes(';') || /^import\s+['"]/.test(trimmed)) {
-        imports.push(trimmed);
-      } else {
-        pendingImport = trimmed;
-      }
-    } else if (/^export\s/.test(trimmed)) {
-      exports.push(trimmed);
-    } else {
-      bodyLines.push(lines[i]);
-    }
+      if (trimmed.includes('from ') || trimmed.includes(';') || /^import\s+['"]/.test(trimmed)) { imports.push(trimmed); } else { pendingImport = trimmed; }
+    } else if (/^export\s/.test(trimmed)) { exports.push(trimmed); } else { bodyLines.push(lines[i]); }
   }
-
-  if (pendingImport) {
-    imports.push(pendingImport);
-  }
-
+  if (pendingImport) imports.push(pendingImport);
   return { imports, exports, body: bodyLines.join('\n') };
 }
 
 function obfuscateJavaScript(code: string, options: ObfuscationOptions): string {
   const moduleInfo = extractModuleStatements(code);
   const hasModuleSyntax = moduleInfo.imports.length > 0 || moduleInfo.exports.length > 0;
-
   let result = hasModuleSyntax ? moduleInfo.body : code;
 
   for (let round = 0; round < options.encryptionRounds; round++) {
     const keys = Array.from({ length: 6 }, () => Math.floor(Math.random() * 255) + 1);
 
+    if (options.stringSplitting && round === 0) {
+      result = splitStrings(result);
+    }
+
     if (options.stringEncryption && round === 0) {
       const extracted = extractStrings(result);
-      if (extracted.strings.length > 0) {
-        const strDeclaration = encryptStringArray(extracted.strings, keys);
-        result = strDeclaration + extracted.code;
+      if (extracted.strings.length > 0) result = encryptStringArray(extracted.strings, keys) + extracted.code;
+    }
+
+    if (options.opaquePredicates) {
+      const predicates = Array.from({ length: Math.floor(Math.random() * 3) + 1 }, generateOpaquePredicates);
+      const stmts = splitStatements(result);
+      if (stmts.length > 2) {
+        const insertAt = Math.floor(stmts.length / 3);
+        stmts.splice(insertAt, 0, ...predicates);
+        result = stmts.join(';');
       }
     }
 
     if (options.deadCodeInjection) {
       const deadCodes = Array.from({ length: Math.floor(Math.random() * 3) + 2 }, generateDeadCode);
       const statements = splitStatements(result);
-      const insertIdx = Math.max(1, Math.floor(statements.length / 2));
-      statements.splice(insertIdx, 0, ...deadCodes);
+      statements.splice(Math.max(1, Math.floor(statements.length / 2)), 0, ...deadCodes);
       result = statements.join(';');
     }
 
-    if (options.identifierMangling && round === 0) {
-      result = mangleIdentifiers(result);
-    }
+    if (options.identifierMangling && round === 0) result = mangleIdentifiers(result);
 
     if (options.controlFlowFlattening && round === 0) {
       const statements = splitStatements(result);
       if (statements.length > 4) {
         const mid = Math.floor(statements.length / 2);
-        const chunk1 = statements.slice(0, mid).join(';') + ';';
-        const chunk2Stmts = statements.slice(mid);
-        result = chunk1 + flattenControlFlow(chunk2Stmts.join(';'));
+        result = statements.slice(0, mid).join(';') + ';' + flattenControlFlow(statements.slice(mid).join(';'));
       }
     }
 
-    if (options.compressCode) {
-      result = compressWhitespace(result);
+    if (options.bracketNotation && round === 0) {
+      result = convertBracketNotation(result);
     }
 
-    if (round < options.encryptionRounds - 1) {
-      result = wrapInEval(result);
+    if (options.hexNumbers) {
+      result = obfuscateNumbers(result);
     }
+
+    if (options.unicodeEncoding && round === 0) {
+      result = result.replace(/(["'])([^'"\\]{1,})\1/g, (match, q, str) => {
+        return q + encodeUnicode(str) + q;
+      });
+    }
+
+    if (options.compressCode) result = compressWhitespace(result);
+    if (round < options.encryptionRounds - 1) result = wrapInEval(result);
   }
 
-  if (options.domainLock) {
-    result = addDomainLock(result, options.domainLock);
-  }
-
-  if (options.debugProtection) {
-    result = addDebugProtection(result);
-  }
-
-  if (options.selfDefending) {
-    result = addSelfDefense(result);
-  }
-
+  if (options.domainLock) result = addDomainLock(result, options.domainLock);
+  if (options.debugProtection) result = addDebugProtection(result);
+  if (options.selfDefending) result = addSelfDefense(result);
   result = wrapInEval(result);
-
-  if (hasModuleSyntax) {
-    const parts: string[] = [];
-    if (moduleInfo.imports.length > 0) {
-      parts.push(moduleInfo.imports.join('\n'));
-    }
-    parts.push(result);
-    if (moduleInfo.exports.length > 0) {
-      parts.push(moduleInfo.exports.join('\n'));
-    }
-    result = parts.join('\n');
-  }
-
+  if (hasModuleSyntax) result = [moduleInfo.imports.join('\n'), result, moduleInfo.exports.join('\n')].filter(Boolean).join('\n');
   return result;
 }
 
 function obfuscateCSS(code: string, options: ObfuscationOptions): string {
-  let result = code;
-
-  result = result.replace(/\/\*[\s\S]*?\*\//g, '');
-
+  let result = code.replace(/\/\*[\s\S]*?\*\//g, '');
   if (options.identifierMangling) {
     const classMap = new Map<string, string>();
     const idMap = new Map<string, string>();
-
     const classRegex = /\.([a-zA-Z_-][a-zA-Z0-9_-]*)/g;
-    let match;
-    while ((match = classRegex.exec(code)) !== null) {
-      const cls = match[1];
-      if (!classMap.has(cls)) {
-        classMap.set(cls, `_${generateRandomName(6).replace(/[^a-zA-Z0-9_-]/g, '')}`);
-      }
-    }
-
     const idRegex = /#([a-zA-Z_-][a-zA-Z0-9_-]*)/g;
-    while ((match = idRegex.exec(code)) !== null) {
-      const id = match[1];
-      if (!idMap.has(id)) {
-        idMap.set(id, `_${generateRandomName(6).replace(/[^a-zA-Z0-9_-]/g, '')}`);
-      }
-    }
-
-    for (const [original, mangled] of classMap) {
-      const escaped = original.replace(/[-[\]{}()*+?.,\\^$|#]/g, '\\$&');
-      result = result.replace(new RegExp(`\\.${escaped}(?=[\\s{:,>+~\\[])`, 'g'), `.${mangled}`);
-    }
-    for (const [original, mangled] of idMap) {
-      const escaped = original.replace(/[-[\]{}()*+?.,\\^$|#]/g, '\\$&');
-      result = result.replace(new RegExp(`#${escaped}(?=[\\s{:,>+~\\[])`, 'g'), `#${mangled}`);
-    }
+    let match;
+    while ((match = classRegex.exec(code)) !== null) if (!classMap.has(match[1])) classMap.set(match[1], `_${generateRandomName(6).replace(/[^a-zA-Z0-9_-]/g, '')}`);
+    while ((match = idRegex.exec(code)) !== null) if (!idMap.has(match[1])) idMap.set(match[1], `_${generateRandomName(6).replace(/[^a-zA-Z0-9_-]/g, '')}`);
+    for (const [orig, mangled] of classMap) result = result.replace(new RegExp(`\\.${orig.replace(/[-[\]{}()*+?.,\\^$|#]/g, '\\$&')}(?=[\\s{:,>+~\\[])`, 'g'), `.${mangled}`);
+    for (const [orig, mangled] of idMap) result = result.replace(new RegExp(`#${orig.replace(/[-[\]{}()*+?.,\\^$|#]/g, '\\$&')}(?=[\\s{:,>+~\\[])`, 'g'), `#${mangled}`);
   }
-
   if (options.deadCodeInjection) {
-    const fakeRules = Array.from({ length: 3 }, () => {
-      const sel = `.${generateRandomName(5).replace(/[^a-zA-Z0-9_-]/g, '')}`;
-      const props = [
-        `visibility:hidden`,
-        `position:absolute`,
-        `left:-9999px`,
-        `opacity:0`,
-        `pointer-events:none`,
-      ];
-      return `${sel}{${props.join(';')}}`;
-    });
+    const fakeRules = Array.from({ length: 3 }, () => `.${generateRandomName(5).replace(/[^a-zA-Z0-9_-]/g, '')}{visibility:hidden;position:absolute;left:-9999px;opacity:0;pointer-events:none}`);
     result = fakeRules.join('') + result;
   }
-
   if (options.stringEncryption) {
     const hexColors = result.match(/#[0-9a-fA-F]{3,8}\b/g) || [];
-    for (const hex of hexColors) {
-      if (hex.length === 7) {
-        const r = parseInt(hex.slice(1, 3), 16);
-        const g = parseInt(hex.slice(3, 5), 16);
-        const b = parseInt(hex.slice(5, 7), 16);
-        result = result.replace(hex, `rgb(${r},${g},${b})`);
-      }
-    }
+    for (const hex of hexColors) if (hex.length === 7) result = result.replace(hex, `rgb(${parseInt(hex.slice(1,3),16)},${parseInt(hex.slice(3,5),16)},${parseInt(hex.slice(5,7),16)})`);
   }
-
-  if (options.compressCode) {
-    result = result
-      .replace(/\s+/g, ' ')
-      .replace(/\s*([{}:;,>+~])\s*/g, '$1')
-      .replace(/;\}/g, '}')
-      .trim();
-  }
-
+  if (options.compressCode) result = result.replace(/\s+/g, ' ').replace(/\s*([{}:;,>+~])\s*/g, '$1').replace(/;\}/g, '}').trim();
   return result;
 }
 
 function obfuscateHTML(code: string, options: ObfuscationOptions): string {
-  let result = code;
-
-  result = result.replace(/<!--[\s\S]*?-->/g, '');
-
+  let result = code.replace(/<!--[\s\S]*?-->/g, '');
   if (options.identifierMangling) {
     const idRegex = /id=["']([^"']+)["']/g;
     const classRegex = /class=["']([^"']+)["']/g;
-    const idMap = new Map<string, string>();
-    const clsMap = new Map<string, string>();
+    const idMap = new Map<string, string>(), clsMap = new Map<string, string>();
     let match;
-
-    while ((match = idRegex.exec(code)) !== null) {
-      if (!idMap.has(match[1])) idMap.set(match[1], `_${generateRandomName(5).replace(/[^a-zA-Z0-9_-]/g, '')}`);
-    }
-    while ((match = classRegex.exec(code)) !== null) {
-      const classes = match[1].split(/\s+/);
-      for (const cls of classes) {
-        if (!clsMap.has(cls)) clsMap.set(cls, `_${generateRandomName(5).replace(/[^a-zA-Z0-9_-]/g, '')}`);
-      }
-    }
-
-    for (const [orig, mangled] of idMap) {
-      const escaped = orig.replace(/[-[\]{}()*+?.,\\^$|#]/g, '\\$&');
-      result = result.replace(new RegExp(`(id=["'])${escaped}(["'])`, 'g'), `$1${mangled}$2`);
-    }
-    for (const [orig, mangled] of clsMap) {
-      const escaped = orig.replace(/[-[\]{}()*+?.,\\^$|#]/g, '\\$&');
-      result = result.replace(new RegExp(`\\b${escaped}\\b`, 'g'), mangled);
-    }
+    while ((match = idRegex.exec(code)) !== null) if (!idMap.has(match[1])) idMap.set(match[1], `_${generateRandomName(5).replace(/[^a-zA-Z0-9_-]/g, '')}`);
+    while ((match = classRegex.exec(code)) !== null) for (const cls of match[1].split(/\s+/)) if (!clsMap.has(cls)) clsMap.set(cls, `_${generateRandomName(5).replace(/[^a-zA-Z0-9_-]/g, '')}`);
+    for (const [orig, mangled] of idMap) result = result.replace(new RegExp(`(id=["'])${orig.replace(/[-[\]{}()*+?.,\\^$|#]/g, '\\$&')}(["'])`, 'g'), `$1${mangled}$2`);
+    for (const [orig, mangled] of clsMap) result = result.replace(new RegExp(`\\b${orig.replace(/[-[\]{}()*+?.,\\^$|#]/g, '\\$&')}\\b`, 'g'), mangled);
   }
-
   if (options.deadCodeInjection) {
-    const fakeElements = [
-      `<div style="display:none" data-${generateRandomName(4).replace(/[^a-z]/g, '')}="${Math.random().toString(36).slice(2)}"></div>`,
-      `<span style="visibility:hidden;position:absolute" aria-hidden="true">${generateRandomName(3)}</span>`,
-      `<!-- ${customB64Encode(generateRandomName(10))} -->`,
-    ];
+    const fake = [`<div style="display:none" data-${generateRandomName(4).replace(/[^a-z]/g, '')}="${Math.random().toString(36).slice(2)}"></div>`, `<span style="visibility:hidden;position:absolute" aria-hidden="true">${generateRandomName(3)}</span>`, `<!-- ${customB64Encode(generateRandomName(10))} -->`].join('');
     const bodyClose = result.lastIndexOf('</body>');
-    if (bodyClose > -1) {
-      result = result.slice(0, bodyClose) + fakeElements.join('') + result.slice(bodyClose);
-    } else {
-      result += fakeElements.join('');
-    }
+    result = bodyClose > -1 ? result.slice(0, bodyClose) + fake + result.slice(bodyClose) : result + fake;
   }
-
   if (options.stringEncryption) {
     const textRegex = />([^<]{3,})</g;
-    let textMatch;
-    const replacements: [string, string][] = [];
-    while ((textMatch = textRegex.exec(result)) !== null) {
-      const text = textMatch[1].trim();
-      if (text.length > 2) {
-        const encoded = text.split('').map(c => `&#${c.charCodeAt(0)};`).join('');
-        replacements.push([`>${textMatch[1]}<`, `>${encoded}<`]);
-      }
-    }
-    for (const [from, to] of replacements) {
-      result = result.replace(from, to);
-    }
+    let match; const reps: [string, string][] = [];
+    while ((match = textRegex.exec(result)) !== null) if (match[1].trim().length > 2) reps.push([`>${match[1]}<`, `>${match[1].split('').map(c => `&#${c.charCodeAt(0)};`).join('')}<`]);
+    for (const [from, to] of reps) result = result.replace(from, to);
   }
-
-  if (options.compressCode) {
-    result = result
-      .replace(/\s+/g, ' ')
-      .replace(/>\s+</g, '><')
-      .trim();
-  }
-
+  if (options.compressCode) result = result.replace(/\s+/g, ' ').replace(/>\s+</g, '><').trim();
   return result;
 }
 
 function obfuscateBatch(code: string, options: ObfuscationOptions): string {
-  let result = code;
-
-  result = result.replace(/^REM .*/gmi, '');
-  result = result.replace(/^:: .*/gm, '');
-
+  let result = code.replace(/^REM .*/gmi, '').replace(/^:: .*/gm, '');
   if (options.identifierMangling) {
     const setRegex = /set\s+(?:\/\w\s+)?"?([a-zA-Z_]\w*)=/gi;
     const varMap = new Map<string, string>();
+    const reservedBatch = new Set(['errorlevel','cd','date','time','random','path','pathext','comspec','os','userprofile','temp','tmp','homedrive','homepath','username','appdata','programfiles','systemroot','windir','counter']);
     let match;
-
-    const batchReserved = new Set(['errorlevel', 'cd', 'date', 'time', 'random', 'path', 'pathext', 'comspec', 'os', 'userprofile', 'temp', 'tmp', 'homedrive', 'homepath', 'username', 'appdata', 'programfiles', 'systemroot', 'windir', 'counter']);
-
-    while ((match = setRegex.exec(code)) !== null) {
-      const v = match[1].toLowerCase();
-      if (!batchReserved.has(v) && !varMap.has(match[1])) {
-        varMap.set(match[1], `_W${generateRandomName(4).replace(/[^a-zA-Z0-9_]/g, '')}`);
-      }
-    }
-
+    while ((match = setRegex.exec(code)) !== null) if (!reservedBatch.has(match[1].toLowerCase()) && !varMap.has(match[1])) varMap.set(match[1], `_W${generateRandomName(4).replace(/[^a-zA-Z0-9_]/g, '')}`);
     for (const [orig, mangled] of varMap) {
-      const escaped = orig.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      result = result.replace(new RegExp(`%${escaped}%`, 'gi'), `%${mangled}%`);
-      result = result.replace(new RegExp(`(set\\s+(?:\\/\\w\\s+)?"?)${escaped}(=)`, 'gi'), `$1${mangled}$2`);
+      const esc = orig.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      result = result.replace(new RegExp(`%${esc}%`, 'gi'), `%${mangled}%`).replace(new RegExp(`(set\\s+(?:\\/\\w\\s+)?"?)${esc}(=)`, 'gi'), `$1${mangled}$2`);
     }
   }
-
   if (options.deadCodeInjection) {
-    const deadLabels = Array.from({ length: 3 }, () => {
-      const label = `_W${generateRandomName(4).replace(/[^a-zA-Z0-9_]/g, '')}`;
-      return `:${label}\r\nif 1==0 (\r\necho %random%%random%\r\ngoto :eof\r\n)`;
-    });
-    result = deadLabels.join('\r\n') + '\r\n' + result;
+    const labels = Array.from({ length: 3 }, () => `:_W${generateRandomName(4).replace(/[^a-zA-Z0-9_]/g, '')}\r\nif 1==0 (\r\necho %random%%random%\r\ngoto :eof\r\n)`).join('\r\n');
+    result = labels + '\r\n' + result;
   }
-
   if (options.stringEncryption) {
     const lines = result.split(/\r?\n/);
+    const usedCodes = new Set<number>();
     const obfLines = lines.map(line => {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('@') || trimmed.startsWith(':') || trimmed === '' || trimmed.startsWith('if ') || trimmed.startsWith('goto') || trimmed.startsWith('set ')) {
-        return line;
-      }
-      if (trimmed.startsWith('echo ')) {
-        const msg = trimmed.slice(5);
-        const encoded = msg.split('').map(c => {
-          const charCode = c.charCodeAt(0);
-          return `!_c${charCode}!`;
-        }).join('');
-        return `echo ${encoded}`;
+      const t = line.trim();
+      if (t.startsWith('@') || t.startsWith(':') || t === '' || t.startsWith('if ') || t.startsWith('goto') || t.startsWith('set ')) return line;
+      if (t.startsWith('echo ')) {
+        const msg = t.slice(5);
+        return `echo ` + msg.split('').map(c => { const code = c.charCodeAt(0); usedCodes.add(code); return `!_c${code}!`; }).join('');
       }
       return line;
     });
-
-    const charSetup: string[] = [];
-    const usedCodes = new Set<number>();
-    for (const line of obfLines) {
-      const matches = line.match(/!_c(\d+)!/g);
-      if (matches) {
-        for (const codeMatch of matches) {
-          const charCode = parseInt(codeMatch.slice(3, -1));
-          usedCodes.add(charCode);
-        }
-      }
-    }
-    for (const charCode of usedCodes) {
-      charSetup.push(`set "_c${charCode}=${String.fromCharCode(charCode)}"`);
-    }
-
-    if (charSetup.length > 0) {
-      result = '@echo off\r\nsetlocal enabledelayedexpansion\r\n' + charSetup.join('\r\n') + '\r\n' + obfLines.join('\r\n');
-    } else {
-      result = obfLines.join('\r\n');
-    }
+    const charSetup = Array.from(usedCodes).map(code => `set "_c${code}=${String.fromCharCode(code)}"`).join('\r\n');
+    result = charSetup ? '@echo off\r\nsetlocal enabledelayedexpansion\r\n' + charSetup + '\r\n' + obfLines.join('\r\n') : obfLines.join('\r\n');
   }
-
-  if (options.compressCode) {
-    result = result.replace(/\r?\n\s*\r?\n/g, '\r\n');
-  }
-
+  if (options.compressCode) result = result.replace(/\r?\n\s*\r?\n/g, '\r\n');
   return result;
 }
 
 export function obfuscate(code: string, options: Partial<ObfuscationOptions> = {}): string {
   const opts = { ...DEFAULT_OPTIONS, ...options };
-
   if (!code.trim()) return '';
-
   switch (opts.language) {
-    case 'javascript':
-      return obfuscateJavaScript(code, opts);
-    case 'css':
-      return obfuscateCSS(code, opts);
-    case 'html':
-      return obfuscateHTML(code, opts);
-    case 'batch':
-      return obfuscateBatch(code, opts);
-    default:
-      return obfuscateJavaScript(code, opts);
+    case 'javascript': return obfuscateJavaScript(code, opts);
+    case 'css': return obfuscateCSS(code, opts);
+    case 'html': return obfuscateHTML(code, opts);
+    case 'batch': return obfuscateBatch(code, opts);
+    default: return obfuscateJavaScript(code, opts);
   }
 }
 
