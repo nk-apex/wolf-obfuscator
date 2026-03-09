@@ -142,9 +142,7 @@ type LogEntry = {
   timestamp: string;
 };
 
-function buildRunnerHtml(code: string): string {
-  const safeCode = JSON.stringify(code);
-  return `<!DOCTYPE html>
+const RUNNER_SANDBOX_HTML = `<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"></head>
 <body>
@@ -170,19 +168,22 @@ function buildRunnerHtml(code: string): string {
     send('error', [err ? (err.message || msg) : msg]);
     return true;
   };
-  window.parent.postMessage({ wolfRunner: true, type: 'system', message: 'Execution started...' }, '*');
-  try {
-    var _code = ${safeCode};
-    eval(_code);
-    window.parent.postMessage({ wolfRunner: true, type: 'result', message: 'Execution completed successfully.' }, '*');
-  } catch(e) {
-    window.parent.postMessage({ wolfRunner: true, type: 'error', message: 'Runtime error: ' + (e && e.message ? e.message : String(e)) }, '*');
-  }
+  window.addEventListener('message', function(evt) {
+    if (!evt.data || evt.data.wolfCode === undefined) return;
+    send('system', 'Execution started...');
+    try {
+      eval(evt.data.wolfCode);
+      send('result', 'Execution completed successfully.');
+    } catch(e) {
+      send('error', 'Runtime error: ' + (e && e.message ? e.message : String(e)));
+    }
+  });
+  window.parent.postMessage({ wolfRunner: true, type: 'ready', message: '' }, '*');
 })();
 <\/script>
 </body>
 </html>`;
-}
+
 
 export default function Home() {
   const { toast } = useToast();
@@ -198,6 +199,7 @@ export default function Home() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const outputRef = useRef<HTMLTextAreaElement>(null);
+  const pendingCodeRef = useRef<string | null>(null);
 
   const handleObfuscate = useCallback(() => {
     if (!inputCode.trim()) {
@@ -269,6 +271,7 @@ export default function Home() {
       toast({ title: "JS Only", description: "Code execution is only available for JavaScript.", variant: "destructive" });
       return;
     }
+    pendingCodeRef.current = outputCode;
     setRunnerLogs([]);
     setIsRunning(true);
     setRunnerKey(k => k + 1);
@@ -287,6 +290,15 @@ export default function Home() {
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (!event.data?.wolfRunner) return;
+
+      if (event.data.type === "ready") {
+        const code = pendingCodeRef.current;
+        if (code && iframeRef.current?.contentWindow) {
+          iframeRef.current.contentWindow.postMessage({ wolfCode: code }, "*");
+        }
+        return;
+      }
+
       const ts = new Date().toLocaleTimeString();
       const entry: LogEntry = {
         type: event.data.type as LogEntry["type"],
@@ -296,6 +308,7 @@ export default function Home() {
       setRunnerLogs(prev => [...prev, entry]);
       if (event.data.type === "result" || event.data.type === "error") {
         setIsRunning(false);
+        pendingCodeRef.current = null;
       }
     };
     window.addEventListener("message", handler);
@@ -731,16 +744,14 @@ export default function Home() {
                   <div ref={logsEndRef} />
                 </div>
 
-                {isRunning && (
-                  <iframe
-                    key={runnerKey}
-                    ref={iframeRef}
-                    sandbox="allow-scripts"
-                    srcDoc={buildRunnerHtml(outputCode)}
-                    style={{ display: "none" }}
-                    title="code-runner-sandbox"
-                  />
-                )}
+                <iframe
+                  key={runnerKey}
+                  ref={iframeRef}
+                  sandbox="allow-scripts"
+                  srcDoc={RUNNER_SANDBOX_HTML}
+                  style={{ display: "none" }}
+                  title="code-runner-sandbox"
+                />
               </div>
             )}
 

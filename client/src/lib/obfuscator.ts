@@ -128,22 +128,35 @@ function generateOpaquePredicates(): string {
 }
 
 function obfuscateNumbers(code: string): string {
-  return code.replace(/\b(\d+)\b/g, (match, numStr) => {
-    const n = parseInt(numStr, 10);
-    if (n > 1000000 || n < 0) return match;
-    if (n === 0) return '0x0';
-    if (n === 1) return '0x1';
-    const methods = [
-      () => `0x${n.toString(16)}`,
-      () => `0x${n.toString(16)}`,
-      () => {
-        const a = Math.floor(Math.random() * (n - 1)) + 1;
-        const b = n - a;
-        return `(0x${a.toString(16)}+0x${b.toString(16)})`;
-      },
-    ];
-    return methods[Math.floor(Math.random() * methods.length)]();
-  });
+  let result = '';
+  let i = 0;
+  let inString: string | null = null;
+  let escaped = false;
+
+  while (i < code.length) {
+    const ch = code[i];
+    if (escaped) { result += ch; escaped = false; i++; continue; }
+    if (ch === '\\' && inString) { result += ch; escaped = true; i++; continue; }
+    if (inString) { result += ch; if (ch === inString) inString = null; i++; continue; }
+    if (ch === '"' || ch === "'" || ch === '`') { result += ch; inString = ch; i++; continue; }
+
+    if (/\d/.test(ch)) {
+      const prevChar = result.length > 0 ? result[result.length - 1] : '';
+      if (/[a-zA-Z0-9_$]/.test(prevChar)) { result += ch; i++; continue; }
+      let num = '';
+      while (i < code.length && /\d/.test(code[i])) { num += code[i]; i++; }
+      const nextChar = i < code.length ? code[i] : '';
+      if (/[a-zA-Z_$]/.test(nextChar)) { result += num; continue; }
+      const n = parseInt(num, 10);
+      if (n > 65535 || num.length > 5) { result += num; continue; }
+      if (n === 0) { result += '0x0'; continue; }
+      if (n === 1) { result += '0x1'; continue; }
+      result += `0x${n.toString(16)}`;
+      continue;
+    }
+    result += ch; i++;
+  }
+  return result;
 }
 
 function encodeUnicode(str: string): string {
