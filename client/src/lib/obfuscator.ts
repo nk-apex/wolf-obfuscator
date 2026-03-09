@@ -155,7 +155,7 @@ function obfuscateNumbers(code: string): string {
 
     if (/\d/.test(ch)) {
       const prevChar = result.length > 0 ? result[result.length - 1] : '';
-      if (/[a-zA-Z0-9_$]/.test(prevChar)) { result += ch; i++; continue; }
+      if (/[a-zA-Z0-9_$.]/.test(prevChar)) { result += ch; i++; continue; }
       let num = '';
       while (i < code.length && /\d/.test(code[i])) { num += code[i]; i++; }
       const nextChar = i < code.length ? code[i] : '';
