@@ -69,6 +69,18 @@ function generateRandomName(length: number = 8): string {
   return name;
 }
 
+function makeHexName(length: number = 4): string {
+  const chars = 'abcdef0123456789';
+  let name = '_0x';
+  for (let i = 0; i < length; i++) name += chars[Math.floor(Math.random() * chars.length)];
+  return name;
+}
+
+const GENERATED_PREFIXES = ['_0x', '_$', '__', '$_', '_W', '_O', '_L', '_F'];
+function isGeneratedName(n: string): boolean {
+  return GENERATED_PREFIXES.some(p => n.startsWith(p));
+}
+
 function generateDeadCode(): string {
   const templates = [
     () => {
@@ -84,7 +96,8 @@ function generateDeadCode(): string {
     () => {
       const fn = generateRandomName(6);
       const v1 = generateRandomName(4);
-      return `function ${fn}(${v1}){try{return ${v1}['toString'](0x${(Math.floor(Math.random()*20)+2).toString(16)});}catch(_e){return ${v1};}}`;
+      const ve = makeHexName(3);
+      return `function ${fn}(${v1}){try{return ${v1}['toString'](0x${(Math.floor(Math.random()*20)+2).toString(16)});}catch(${ve}){return ${v1};}}`;
     },
     () => {
       const v1 = generateRandomName(5);
@@ -254,6 +267,7 @@ function extractStrings(code: string): { strings: string[]; code: string } {
   let inString: string | null = null;
   let currentStr = '';
   let escaped = false;
+  let stringOpenedAfterObjContext = false;
   const arrName = '_0xstrArr';
 
   while (i < code.length) {
@@ -265,14 +279,28 @@ function extractStrings(code: string): { strings: string[]; code: string } {
     if (ch === '\\') { if (!inString) modified += ch; escaped = true; i++; continue; }
     if (inString) {
       if (ch === inString) {
+        let peek = i + 1;
+        while (peek < code.length && (code[peek] === ' ' || code[peek] === '\t' || code[peek] === '\n' || code[peek] === '\r')) peek++;
+        const nextIsColon = peek < code.length && code[peek] === ':' && (peek + 1 >= code.length || code[peek + 1] !== ':');
+        const isObjKey = nextIsColon && stringOpenedAfterObjContext;
         if (currentStr.length > 0) {
-          strings.push(currentStr);
-          modified += `${arrName}[${strings.length - 1}]`;
+          if (isObjKey) {
+            modified += inString + currentStr + ch;
+          } else {
+            strings.push(currentStr);
+            modified += `${arrName}[${strings.length - 1}]`;
+          }
         } else { modified += inString + inString; }
-        currentStr = ''; inString = null;
+        currentStr = ''; inString = null; stringOpenedAfterObjContext = false;
       } else { currentStr += ch; }
     } else {
-      if (ch === '"' || ch === "'") { inString = ch; currentStr = ''; } else { modified += ch; }
+      if (ch === '"' || ch === "'") {
+        let prev = modified.length - 1;
+        while (prev >= 0 && (modified[prev] === ' ' || modified[prev] === '\t' || modified[prev] === '\n' || modified[prev] === '\r')) prev--;
+        const prevChar = prev >= 0 ? modified[prev] : '';
+        stringOpenedAfterObjContext = (prevChar === '{' || prevChar === ',');
+        inString = ch; currentStr = '';
+      } else { modified += ch; }
     }
     i++;
   }
@@ -288,10 +316,21 @@ function encryptStringArray(strings: string[], keys: number[]): string {
   const rotOffset = Math.floor(Math.random() * strings.length) + 1;
   const encrypted = strings.map(s => customB64Encode(xorEncrypt(s, keys)));
   const rotated = [...encrypted.slice(rotOffset), ...encrypted.slice(0, rotOffset)];
-  const decoder = `var ${decFn}=function(_s,_k){var _r='',_b='${CUSTOM_ALPHABET}',_s2='${STANDARD_B64}',_d='';for(var _i=0;_i<_s['length'];_i++){var _x=_b['indexOf'](_s[_i]);_d+=_x>=0?_s2[_x]:_s[_i];}_d=decodeURIComponent(escape(atob(_d)));for(var _j=0;_j<_d['length'];_j++){_r+=String['fromCharCode'](_d['charCodeAt'](_j)^_k[_j%_k['length']]);}return _r;};`;
-  const rotDecoder = `var ${rotFn}=function(_arr,_off){_arr['push'](_arr['shift']());};`;
+  const v_s = makeHexName(4);
+  const v_k = makeHexName(4);
+  const v_r = makeHexName(4);
+  const v_b = makeHexName(4);
+  const v_s2 = makeHexName(4);
+  const v_d = makeHexName(4);
+  const v_i = makeHexName(4);
+  const v_x = makeHexName(4);
+  const v_j = makeHexName(4);
+  const v_arr = makeHexName(4);
+  const v_ri = makeHexName(4);
+  const decoder = `var ${decFn}=function(${v_s},${v_k}){var ${v_r}='',${v_b}='${CUSTOM_ALPHABET}',${v_s2}='${STANDARD_B64}',${v_d}='';for(var ${v_i}=0;${v_i}<${v_s}['length'];${v_i}++){var ${v_x}=${v_b}['indexOf'](${v_s}[${v_i}]);${v_d}+=${v_x}>=0?${v_s2}[${v_x}]:${v_s}[${v_i}];}${v_d}=decodeURIComponent(escape(atob(${v_d})));for(var ${v_j}=0;${v_j}<${v_d}['length'];${v_j}++){${v_r}+=String['fromCharCode'](${v_d}['charCodeAt'](${v_j})^${v_k}[${v_j}%${v_k}['length']]);}return ${v_r};};`;
+  const rotDecoder = `var ${rotFn}=function(${v_arr}){${v_arr}['push'](${v_arr}['shift']());};`;
   const arrDecl = `var ${arrName}=[${rotated.map(e => `${decFn}('${e}',${keyArr})`).join(',')}];`;
-  const unrot = `for(var _ri=0;_ri<0x${rotOffset.toString(16)};_ri++){${rotFn}(${arrName});}`;
+  const unrot = `for(var ${v_ri}=0;${v_ri}<0x${rotOffset.toString(16)};${v_ri}++){${rotFn}(${arrName});}`;
   return decoder + rotDecoder + arrDecl + unrot;
 }
 
@@ -339,12 +378,12 @@ function mangleIdentifiers(code: string): string {
   const paramRegex = /function\s*[a-zA-Z_$]*\s*\(([^)]*)\)/g;
   const declaredIdents = new Set<string>();
   let m;
-  while ((m = declareRegex.exec(code)) !== null) if (!reserved.has(m[1]) && m[1].length > 1 && !m[1].startsWith('_0x') && !m[1].startsWith('_$') && !m[1].startsWith('$_')) declaredIdents.add(m[1]);
+  while ((m = declareRegex.exec(code)) !== null) if (!reserved.has(m[1]) && m[1].length > 1 && !isGeneratedName(m[1])) declaredIdents.add(m[1]);
   while ((m = paramRegex.exec(code)) !== null) {
     const params = m[1].split(',').map(p => p.trim()).filter(Boolean);
     for (const p of params) {
       const pName = p.replace(/\s*=.*$/, '').trim();
-      if (pName && !reserved.has(pName) && pName.length > 1 && !pName.startsWith('_0x')) declaredIdents.add(pName);
+      if (pName && !reserved.has(pName) && pName.length > 1 && !isGeneratedName(pName)) declaredIdents.add(pName);
     }
   }
   const propertyNames = new Set<string>();
