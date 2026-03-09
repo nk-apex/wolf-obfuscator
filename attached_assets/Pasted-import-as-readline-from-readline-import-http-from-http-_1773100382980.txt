@@ -1,0 +1,407 @@
+import * as readline from "readline";
+import http from "http";
+import fs from "fs";
+import path from "path";
+import { botConnection } from "./bot/connection.js";
+import { commandLoader } from "./bot/commandLoader.js";
+import { setupMessageHandler, getConfig, updateConfig } from "./bot/messageHandler.js";
+
+const envPath = path.join(process.cwd(), '.env');
+if (fs.existsSync(envPath)) {
+    const lines = fs.readFileSync(envPath, 'utf-8').split('\n');
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx === -1) continue;
+        const key = trimmed.substring(0, eqIdx).trim();
+        const val = trimmed.substring(eqIdx + 1).trim().replace(/^["']|["']$/g, '');
+        if (!process.env[key]) process.env[key] = val;
+    }
+}
+
+const PORT = parseInt(process.env.PORT || "5000", 10);
+const httpServer = http.createServer((_req, res) => {
+  const status = botConnection.getStatus();
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end(`Foxy Bot is running.\nState: ${status.state}\nCommands loaded: ${commandLoader.getCommands().length}\n`);
+});
+httpServer.listen(PORT, "0.0.0.0");
+
+const C = {
+  reset: "\x1b[0m",
+  bright: "\x1b[1m",
+  dim: "\x1b[2m",
+  orange: "\x1b[38;5;208m",
+  orangeBright: "\x1b[38;5;214m",
+  orangeDark: "\x1b[38;5;202m",
+  orangeBg: "\x1b[48;5;208m",
+  white: "\x1b[37m",
+  green: "\x1b[32m",
+  red: "\x1b[31m",
+  yellow: "\x1b[33m",
+  cyan: "\x1b[36m",
+  bgGreen: "\x1b[42m",
+  gray: "\x1b[90m",
+};
+
+function c(color, text) {
+  return `${color}${text}${C.reset}`;
+}
+
+function printBanner() {
+  console.clear();
+  console.log(c(C.orange, `
+  ┌─⧭━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━⧭─┐
+  │                                      │
+  │     ${c(C.bright + C.orangeBright, "FOXY BOT")}${c(C.orange, " - WhatsApp Bot")}          │
+  │                                      │
+  └─⧭━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━⧭─┘
+  `));
+}
+
+function printPairingCode(code) {
+  console.log("");
+  console.log(c(C.orangeBg + C.bright, "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  "));
+  console.log(c(C.orangeBg + C.bright, `       PAIRING CODE: ${code}            `));
+  console.log(c(C.orangeBg + C.bright, "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  "));
+  console.log("");
+  console.log(c(C.orangeBright, "  How to pair:"));
+  console.log(c(C.white, "  1. Open WhatsApp on your phone"));
+  console.log(c(C.white, "  2. Go to Settings > Linked Devices"));
+  console.log(c(C.white, "  3. Tap 'Link a Device'"));
+  console.log(c(C.white, "  4. Choose 'Link with phone number instead'"));
+  console.log(c(C.white, "  5. Enter the 8-digit code above"));
+  console.log("");
+}
+
+function ask(rl, question) {
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      resolve(answer.trim());
+    });
+  });
+}
+
+function printIncomingMessage(msg) {
+  const chatId = msg.key.remoteJid || "";
+  const isGroup = chatId.endsWith("@g.us");
+  const sender = msg.key.participant || msg.key.remoteJid || "";
+  const senderNumber = sender.split("@")[0].split(":")[0];
+  const pushName = msg.pushName || senderNumber;
+
+  const m = msg.message?.ephemeralMessage?.message ||
+    msg.message?.viewOnceMessage?.message ||
+    msg.message?.viewOnceMessageV2?.message ||
+    msg.message?.viewOnceMessageV2Extension?.message ||
+    msg.message?.documentWithCaptionMessage?.message ||
+    msg.message?.editedMessage?.message?.protocolMessage?.editedMessage ||
+    msg.message;
+
+  const body =
+    m?.conversation ||
+    m?.extendedTextMessage?.text ||
+    m?.imageMessage?.caption ||
+    m?.videoMessage?.caption ||
+    "";
+
+  let msgType = "TEXT";
+  if (m?.imageMessage) msgType = "IMAGE";
+  else if (m?.videoMessage) msgType = "VIDEO";
+  else if (m?.audioMessage) msgType = "AUDIO";
+  else if (m?.stickerMessage) msgType = "STICKER";
+  else if (m?.documentMessage) msgType = "DOCUMENT";
+  else if (m?.contactMessage) msgType = "CONTACT";
+  else if (m?.locationMessage) msgType = "LOCATION";
+  else if (m?.reactionMessage) return;
+  else if (m?.protocolMessage) return;
+
+  const time = new Date().toLocaleTimeString("en-US", { hour12: true, hour: "2-digit", minute: "2-digit" });
+
+  const config = getConfig();
+  const ownerNum = config.ownerNumber || "";
+  const isOwner = senderNumber === ownerNum || msg.key.fromMe;
+
+  let label = "DM";
+  if (isGroup) label = "GROUP";
+  if (isOwner) label = "OWNER";
+
+  const groupId = isGroup ? chatId.split("@")[0] : "";
+
+  const displayBody = body.length > 80 ? body.substring(0, 80) + "..." : body;
+
+  console.log(c(C.orange, `  ┌─⧭━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`));
+  console.log(c(C.orange, `  │ `) + c(C.bright + C.orangeBright, `[${label}]`) + c(C.orange, ` │ `) + c(C.white, `+${senderNumber}`) + c(C.gray, ` (${pushName})`));
+  if (isGroup) {
+    console.log(c(C.orange, `  │ `) + c(C.gray, `Group: ${groupId}`));
+  }
+  console.log(c(C.orange, `  │ `) + c(C.orangeBright, `[${msgType}]`) + c(C.white, ` ${displayBody || "(no text)"}`));
+  console.log(c(C.orange, `  │ `) + c(C.gray, time));
+  console.log(c(C.orange, `  └─⧭━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`));
+}
+
+async function showMainMenu(rl) {
+  const config = getConfig();
+
+  console.log("");
+  console.log(c(C.orange, "  ┌─⧭ Connection Method ⧭─┐"));
+  console.log("");
+  console.log(c(C.white, "  1) ") + c(C.orangeBright, "Pair Code") + c(C.gray, " (phone number → 8-digit code)"));
+  console.log(c(C.white, "  2) ") + c(C.orange, "Session ID") + c(C.gray, " (paste FOXY:~... or base64)"));
+
+  const hasSession = botConnection.hasExistingSession();
+  if (hasSession) {
+    console.log(c(C.white, "  3) ") + c(C.orangeDark, "Reconnect") + c(C.gray, " (saved session)"));
+  }
+
+  console.log("");
+  console.log(c(C.gray, `  prefix="${config.prefix}" mode="${config.mode}" bot="${config.botName}"`));
+  console.log("");
+
+  const choice = await ask(rl, c(C.orange, "  Choose [1/2" + (hasSession ? "/3" : "") + "]: "));
+
+  if (choice === "1") {
+    await startWithPairCode(rl);
+  } else if (choice === "2") {
+    await startWithSessionId(rl);
+  } else if (choice === "3" && hasSession) {
+    await reconnectExisting();
+  } else {
+    console.log(c(C.red, "  Invalid choice."));
+    await showMainMenu(rl);
+  }
+}
+
+async function startWithPairCode(rl) {
+  console.log("");
+  const phone = await ask(rl, c(C.orangeBright, "  Enter phone number (e.g. 254788710904): "));
+
+  const cleaned = phone.replace(/[^0-9]/g, "");
+  if (cleaned.length < 10) {
+    console.log(c(C.red, "  Invalid phone number. Must be at least 10 digits with country code."));
+    await startWithPairCode(rl);
+    return;
+  }
+
+  console.log("");
+  console.log(c(C.orange, `  Connecting with: ${cleaned}`));
+  console.log(c(C.gray, "  Waiting for pairing code..."));
+  console.log("");
+
+  try {
+    await botConnection.connect("pair", cleaned);
+  } catch (error) {
+    console.log(c(C.red, `  Connection failed: ${error.message}`));
+  }
+}
+
+async function startWithSessionId(rl) {
+  console.log("");
+  const sessionId = await ask(rl, c(C.orange, "  Paste Session ID: "));
+
+  if (!sessionId.trim()) {
+    console.log(c(C.red, "  Session ID cannot be empty."));
+    await startWithSessionId(rl);
+    return;
+  }
+
+  console.log("");
+  console.log(c(C.orange, "  Connecting with Session ID..."));
+
+  try {
+    await botConnection.connect("session", sessionId);
+  } catch (error) {
+    console.log(c(C.red, `  Connection failed: ${error.message}`));
+  }
+}
+
+async function reconnectExisting() {
+  console.log("");
+  console.log(c(C.orange, "  Reconnecting with saved session..."));
+
+  try {
+    await botConnection.connect("pair");
+  } catch (error) {
+    console.log(c(C.red, `  Reconnection failed: ${error.message}`));
+  }
+}
+
+function setupConsoleCommands(rl) {
+  rl.on("line", async (input) => {
+    const cmd = input.trim().toLowerCase();
+
+    if (cmd === "help" || cmd === "h") {
+      console.log("");
+      console.log(c(C.orange, "  ┌─⧭ Console Commands ⧭─┐"));
+      console.log(c(C.white, "  status    ") + c(C.gray, "Show bot connection status"));
+      console.log(c(C.white, "  config    ") + c(C.gray, "Show current bot config"));
+      console.log(c(C.white, "  commands  ") + c(C.gray, "List loaded bot commands"));
+      console.log(c(C.white, "  restart   ") + c(C.gray, "Restart the bot connection"));
+      console.log(c(C.white, "  stop      ") + c(C.gray, "Stop and disconnect the bot"));
+      console.log(c(C.white, "  exit      ") + c(C.gray, "Exit the application"));
+      console.log("");
+    } else if (cmd === "status" || cmd === "s") {
+      const status = botConnection.getStatus();
+      console.log("");
+      console.log(c(C.orange, "  ┌─⧭ Bot Status ⧭─┐"));
+      console.log(c(C.orange, "  ├◆ ") + c(C.white, `State: ${status.state}`));
+      console.log(c(C.orange, "  ├◆ ") + c(C.white, `Name: ${status.name || "N/A"}`));
+      console.log(c(C.orange, "  ├◆ ") + c(C.white, `Phone: ${status.phoneNumber || "N/A"}`));
+      console.log(c(C.orange, "  ├◆ ") + c(C.white, `Uptime: ${status.uptime}s`));
+      console.log(c(C.orange, "  ├◆ ") + c(C.white, `Msgs In: ${status.messagesReceived}`));
+      console.log(c(C.orange, "  ├◆ ") + c(C.white, `Msgs Out: ${status.messagesSent}`));
+      console.log(c(C.orange, "  └─⧭"));
+      console.log("");
+    } else if (cmd === "config" || cmd === "c") {
+      const config = getConfig();
+      console.log("");
+      console.log(c(C.orange, "  ┌─⧭ Bot Config ⧭─┐"));
+      console.log(c(C.orange, "  ├◆ ") + c(C.white, `Bot Name: ${config.botName}`));
+      console.log(c(C.orange, "  ├◆ ") + c(C.white, `Prefix: ${config.prefix}`));
+      console.log(c(C.orange, "  ├◆ ") + c(C.white, `Mode: ${config.mode}`));
+      console.log(c(C.orange, "  ├◆ ") + c(C.white, `Owner: ${config.ownerNumber || "Not set"}`));
+      console.log(c(C.orange, "  └─⧭"));
+      console.log("");
+    } else if (cmd === "commands" || cmd === "cmd") {
+      const cmds = commandLoader.getCommands();
+      const categories = commandLoader.getCategories();
+      console.log("");
+      console.log(c(C.orange, `  ┌─⧭ ${cmds.length} Commands ⧭─┐`));
+      for (const [cat, catCmds] of Object.entries(categories)) {
+        console.log(c(C.orangeBright, `  ├─ ${cat} (${catCmds.length}):`));
+        const names = catCmds.map((cc) => cc.name).join(", ");
+        console.log(c(C.gray, `  │  ${names}`));
+      }
+      console.log(c(C.orange, "  └─⧭"));
+      console.log("");
+    } else if (cmd === "restart" || cmd === "r") {
+      console.log(c(C.orange, "  Restarting bot..."));
+      try {
+        await botConnection.restart();
+      } catch (error) {
+        console.log(c(C.red, `  Restart failed: ${error.message}`));
+      }
+    } else if (cmd === "stop") {
+      console.log(c(C.orange, "  Stopping bot..."));
+      try {
+        await botConnection.disconnect();
+        console.log(c(C.orange, "  Bot stopped. Type 'exit' to quit."));
+      } catch (error) {
+        console.log(c(C.red, `  Stop failed: ${error.message}`));
+      }
+    } else if (cmd === "exit" || cmd === "quit" || cmd === "q") {
+      console.log(c(C.orange, "  Shutting down..."));
+      try {
+        await botConnection.disconnect();
+      } catch {}
+      process.exit(0);
+    } else if (cmd) {
+      console.log(c(C.gray, `  Unknown: "${cmd}" — type "help"`));
+    }
+  });
+}
+
+async function main() {
+  printBanner();
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  botConnection.on("pairing_code", (code) => {
+    printPairingCode(code);
+  });
+
+  botConnection.on("connected", async () => {
+    const status = botConnection.getStatus();
+    const config = getConfig();
+    console.log("");
+    console.log(c(C.orangeBg + C.bright, "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  "));
+    console.log(c(C.orangeBg + C.bright, "         CONNECTED SUCCESSFULLY         "));
+    console.log(c(C.orangeBg + C.bright, "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  "));
+    console.log("");
+    if (status.name) console.log(c(C.orangeBright, `  Name:   ${status.name}`));
+    if (status.phoneNumber) console.log(c(C.orangeBright, `  Phone:  +${status.phoneNumber}`));
+    console.log(c(C.orangeBright, `  Prefix: ${config.prefix}`));
+    console.log("");
+    console.log(c(C.gray, "  Type 'help' for console commands."));
+    console.log("");
+
+    try {
+      const sock = botConnection.getSocket();
+      if (sock && status.phoneNumber) {
+        const botJid = status.phoneNumber.includes("@") ? status.phoneNumber : `${status.phoneNumber}@s.whatsapp.net`;
+        const cmds = commandLoader.getCommands();
+        const successMsg = `┌─⧭ FOX-CORE ONLINE
+├◆ Status: Connected
+├◆ Name: ${status.name || "Foxy Bot"}
+├◆ Prefix: ${config.prefix}
+├◆ Commands: ${cmds.length}
+├◆ Mode: ${config.mode}
+└─⧭`;
+        await sock.sendMessage(botJid, { text: successMsg });
+      }
+    } catch (err) {}
+  });
+
+  botConnection.on("disconnected", (reason) => {
+    if (reason === "logged_out") {
+      console.log(c(C.red, "\n  Session expired. Connect again.\n"));
+    }
+  });
+
+  const originalLog = console.log;
+  const originalWarn = console.warn;
+  console.log = () => {};
+  console.warn = () => {};
+  await commandLoader.loadCommands();
+  console.log = originalLog;
+  console.warn = originalWarn;
+  setupMessageHandler(printIncomingMessage);
+
+  const cmds = commandLoader.getCommands();
+  const categories = commandLoader.getCategories();
+  console.log(c(C.orange, `  ┌─⧭ Loaded ${cmds.length} commands from ${Object.keys(categories).length} categories ⧭─┐`));
+  console.log("");
+
+  const envSessionId = process.env.SESSION_ID || "";
+
+  if (envSessionId) {
+    console.log(c(C.orange, "  ┌─⧭ Auto-Connect ⧭─┐"));
+    console.log(c(C.orangeBright, "  │ SESSION_ID found in environment"));
+    console.log(c(C.orange, "  │ Connecting automatically..."));
+    console.log(c(C.orange, "  └─⧭"));
+    console.log("");
+
+    try {
+      await botConnection.connect("session", envSessionId);
+    } catch (error) {
+      console.log(c(C.red, `  Auto-connect failed: ${error.message}`));
+      console.log(c(C.gray, "  Falling back to manual connection..."));
+      console.log("");
+      await showMainMenu(rl);
+    }
+  } else if (botConnection.hasExistingSession()) {
+    console.log(c(C.orange, "  ┌─⧭ Existing session found ⧭─┐"));
+    console.log(c(C.orangeBright, "  │ Reconnecting automatically..."));
+    console.log(c(C.orange, "  └─⧭"));
+    console.log("");
+
+    try {
+      await botConnection.connect("pair");
+    } catch (error) {
+      console.log(c(C.red, `  Reconnect failed: ${error.message}`));
+      await showMainMenu(rl);
+    }
+  } else {
+    await showMainMenu(rl);
+  }
+
+  setupConsoleCommands(rl);
+}
+
+main().catch((err) => {
+  console.error("Fatal error:", err);
+  process.exit(1);
+});
