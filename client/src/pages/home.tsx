@@ -192,6 +192,38 @@ const RUNNER_SANDBOX_HTML = `<!DOCTYPE html>
 </html>`;
 
 
+const NODE_BUILTIN_MODULES = [
+  "readline","http","https","fs","path","os","crypto","net","stream",
+  "child_process","cluster","events","buffer","util","url","querystring",
+  "zlib","dns","dgram","tls","vm","worker_threads","module","assert","v8",
+  "perf_hooks","timers","string_decoder","punycode","domain","constants",
+];
+
+function detectNodeCode(code: string): { isNode: boolean; clues: string[] } {
+  const clues: string[] = [];
+
+  for (const mod of NODE_BUILTIN_MODULES) {
+    const importRe = new RegExp(`import[^'"]*['"]${mod}['"]`);
+    const requireRe = new RegExp(`require\\s*\\(\\s*['"]${mod}['"]`);
+    if (importRe.test(code) || requireRe.test(code)) {
+      clues.push(`uses Node.js built-in module "${mod}"`);
+    }
+  }
+
+  if (/\bprocess\.(env|exit|argv|cwd|stdin|stdout|stderr|pid|platform)\b/.test(code))
+    clues.push('uses "process" (Node.js global)');
+  if (/\b__dirname\b/.test(code))
+    clues.push('uses "__dirname" (Node.js global)');
+  if (/\b__filename\b/.test(code))
+    clues.push('uses "__filename" (Node.js global)');
+  if (/\bBuffer\s*\.\s*(from|alloc|concat)\b/.test(code))
+    clues.push('uses "Buffer" (Node.js global)');
+  if (/\bsetImmediate\s*\(/.test(code))
+    clues.push('uses "setImmediate" (Node.js-only)');
+
+  return { isNode: clues.length > 0, clues };
+}
+
 export default function Home() {
   const { toast } = useToast();
   const [inputCode, setInputCode] = useState("");
@@ -278,11 +310,40 @@ export default function Home() {
       toast({ title: "JS Only", description: "Code execution is only available for JavaScript.", variant: "destructive" });
       return;
     }
+
+    const detection = detectNodeCode(inputCode || outputCode);
+    if (detection.isNode) {
+      const ts = new Date().toLocaleTimeString();
+      setRunnerLogs([
+        {
+          type: "warn",
+          message: "Node.js environment required — cannot run in sandbox.",
+          timestamp: ts,
+        },
+        {
+          type: "system",
+          message: "Detected: " + detection.clues.join(", "),
+          timestamp: ts,
+        },
+        {
+          type: "info",
+          message: "This sandbox only executes browser-compatible JavaScript to verify that obfuscated code still produces the correct output.",
+          timestamp: ts,
+        },
+        {
+          type: "info",
+          message: "To run this code, copy the obfuscated output and execute it in a Node.js environment:\n  node your-file.js",
+          timestamp: ts,
+        },
+      ]);
+      return;
+    }
+
     pendingCodeRef.current = outputCode;
     setRunnerLogs([]);
     setIsRunning(true);
     setRunnerKey(k => k + 1);
-  }, [outputCode, options.language, toast]);
+  }, [outputCode, inputCode, options.language, toast]);
 
   const handleStopRunner = useCallback(() => {
     setIsRunning(false);
