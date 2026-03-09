@@ -29,37 +29,24 @@ import {
 } from "@/components/ui/dialog";
 
 const SAMPLE_CODE: Record<Language, string> = {
-  javascript: `// Example JavaScript code
-function calculateTotal(items) {
-  let total = 0;
-  const taxRate = 0.08;
-  for (const item of items) {
-    const price = item.price * item.quantity;
-    const discount = item.discount || 0;
-    total += price - (price * discount);
-  }
-  const tax = total * taxRate;
-  return { subtotal: total, tax: tax, total: total + tax };
-}
-
-const API_KEY = "sk-secret-key-12345";
-const endpoint = "https://api.example.com/data";
+  javascript: `var x = 5;
+var y = 3;
+console.log(x + y);
+console.log(x * y);
+console.log("Hello World");
 
 function greet(name) {
-  const message = "Hello, " + name + "!";
-  console.log(message);
-  return message;
+  return "Hi " + name;
 }
 
-console.log("Running calculateTotal...");
-var result = calculateTotal([
-  { price: 10, quantity: 2, discount: 0.1 },
-  { price: 20, quantity: 1, discount: 0 }
-]);
-console.log("Subtotal: " + result.subtotal);
-console.log("Tax: " + result.tax);
-console.log("Total: " + result.total);
-greet("World");`,
+console.log(greet("Wolf"));
+
+var items = [10, 20, 30];
+var total = 0;
+for (var i = 0; i < items.length; i++) {
+  total += items[i];
+}
+console.log("Total: " + total);`,
   css: `.container {
   display: flex;
   flex-direction: column;
