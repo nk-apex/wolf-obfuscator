@@ -170,9 +170,12 @@ function encodeUnicode(str: string): string {
 }
 
 function splitStrings(code: string): string {
-  return code.replace(/(["'])([^'"]{8,})\1/g, (match, quote, str) => {
-    if (str.includes('\\') || str.includes('\n')) return match;
-    const mid = Math.floor(str.length / 2) + Math.floor(Math.random() * 4) - 2;
+  return code.replace(/(["'])([^'"\\]{8,})\1/g, (match, quote, str, offset: number, full: string) => {
+    if (str.includes('\n')) return match;
+    let i = offset + match.length;
+    while (i < full.length && (full[i] === ' ' || full[i] === '\t')) i++;
+    if (full[i] === ':' && full[i + 1] !== ':') return match;
+    const mid = Math.floor(str.length / 2);
     const safeMid = Math.max(2, Math.min(str.length - 2, mid));
     const left = str.slice(0, safeMid);
     const right = str.slice(safeMid);
@@ -293,8 +296,21 @@ function encryptStringArray(strings: string[], keys: number[]): string {
 }
 
 function flattenControlFlow(code: string): string {
-  const statements = splitStatements(code);
-  if (statements.length < 3) return code;
+  const allStatements = splitStatements(code);
+  if (allStatements.length < 3) return code;
+
+  const funcDecls: string[] = [];
+  const statements: string[] = [];
+  for (const stmt of allStatements) {
+    if (/^\s*(async\s+)?function\s+/.test(stmt)) {
+      funcDecls.push(stmt);
+    } else {
+      statements.push(stmt);
+    }
+  }
+
+  if (statements.length < 3) return allStatements.join(';');
+
   const stateVar = generateRandomName(6);
   const whileVar = generateRandomName(4);
   const order = Array.from({ length: statements.length }, (_, i) => i);
@@ -305,10 +321,11 @@ function flattenControlFlow(code: string): string {
   const reverseMap = new Array(order.length);
   for (let i = 0; i < order.length; i++) reverseMap[order[i]] = i;
   const cases = order.map((originalIdx, shuffledIdx) => {
-    let nextState = originalIdx === order.length - 1 ? `${whileVar}=false` : `${stateVar}=${reverseMap[originalIdx + 1]}`;
+    const nextState = originalIdx === statements.length - 1 ? `${whileVar}=false` : `${stateVar}=${reverseMap[originalIdx + 1]}`;
     return `case ${shuffledIdx}:${statements[originalIdx]};${nextState};break`;
   }).join(';');
-  return `var ${stateVar}=${reverseMap[0]},${whileVar}=true;while(${whileVar}){switch(${stateVar}){${cases};}}`;
+  const flattened = `var ${stateVar}=${reverseMap[0]},${whileVar}=true;while(${whileVar}){switch(${stateVar}){${cases};}}`;
+  return funcDecls.length > 0 ? funcDecls.join(';') + ';' + flattened : flattened;
 }
 
 function mangleIdentifiers(code: string): string {
