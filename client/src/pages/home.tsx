@@ -143,7 +143,7 @@ type LogEntry = {
 };
 
 function buildRunnerHtml(code: string): string {
-  const escaped = code.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$/g, "\\$");
+  const safeCode = JSON.stringify(code);
   return `<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"></head>
@@ -152,7 +152,7 @@ function buildRunnerHtml(code: string): string {
 (function() {
   var send = function(type, args) {
     var msg;
-    try { msg = Array.from(args).map(function(a) {
+    try { msg = Array.prototype.slice.call(args).map(function(a) {
       if (typeof a === 'object' && a !== null) { try { return JSON.stringify(a, null, 2); } catch(e) { return String(a); } }
       return String(a);
     }).join(' '); } catch(e) { msg = String(args); }
@@ -172,7 +172,8 @@ function buildRunnerHtml(code: string): string {
   };
   window.parent.postMessage({ wolfRunner: true, type: 'system', message: 'Execution started...' }, '*');
   try {
-    eval(\`${escaped}\`);
+    var _code = ${safeCode};
+    eval(_code);
     window.parent.postMessage({ wolfRunner: true, type: 'result', message: 'Execution completed successfully.' }, '*');
   } catch(e) {
     window.parent.postMessage({ wolfRunner: true, type: 'error', message: 'Runtime error: ' + (e && e.message ? e.message : String(e)) }, '*');
