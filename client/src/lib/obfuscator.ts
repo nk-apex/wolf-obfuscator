@@ -164,19 +164,20 @@ function deadCode(): string {
   const fn = randName(6), v1 = hexName(4), v2 = hexName(4);
   const n1 = Math.floor(Math.random() * 0xfe) + 1;
   const n2 = Math.floor(Math.random() * 0xfe) + 1;
+  const h1 = n1.toString(16), h2 = n2.toString(16);
   const pick = Math.floor(Math.random() * 7);
   switch (pick) {
-    case 0: return `function ${fn}(${v1}){var ${v2}=${v1}*(0x${n1.toString(16)});if(${v2}>(0x${n2.toString(16)})){return ${v2}+(0x${n1.toString(16)});}return ${v1};}`;
-    case 1: return `var ${v1}=[(0x${n1.toString(16)}),(0x${n2.toString(16)}),(0x${(n1^n2).toString(16)}),(0x${(n1+n2&0xffff).toString(16)})];`;
-    case 2: return `function ${fn}(${v1}){try{return ${v1}['toString']((0x10));}catch(${v2}){return ${v1};}}`;
+    case 0: return `function ${fn}(${v1}){var ${v2}=${v1}*0x${h1};if(${v2}>0x${h2}){return ${v2}+0x${h1};}return ${v1};}`;
+    case 1: return `var ${v1}=[0x${h1},0x${h2},0x${(n1^n2).toString(16)},0x${(n1+n2&0xffff).toString(16)}];`;
+    case 2: return `function ${fn}(${v1}){try{return ${v1}['toString'](0x10);}catch(${v2}){return ${v1};}}`;
     case 3: return `var ${v1}=function(${v2}){return typeof ${v2}==='undefined'?null:${v2};};`;
     case 4: {
       const a = Math.floor(Math.random() * 50) + 2, b = Math.floor(Math.random() * 50) + 2;
-      return `function ${fn}(${v1}){if(((0x${a.toString(16)})*(0x${b.toString(16)}))===(0x${(a*b+1).toString(16)})){return ${v1}+(0x${n1.toString(16)});}return ${v1};}`;
+      return `function ${fn}(${v1}){if((0x${a.toString(16)}*0x${b.toString(16)})===0x${(a*b+1).toString(16)}){return ${v1}+0x${h1};}return ${v1};}`;
     }
-    case 5: return `var ${v1}=[];if(${v1}['length']===(0x0)){}`;
-    case 6: return `var ${v1}=(0x${n1.toString(16)});while((0x0)>(0x1)){${v1}++;}`;
-    default: return `var ${v1}=(0x${n1.toString(16)});`;
+    case 5: return `var ${v1}=[];if(${v1}['length']===0x0){}`;
+    case 6: return `var ${v1}=0x${h1};while(0x0>0x1){${v1}++;}`;
+    default: return `var ${v1}=0x${h1};`;
   }
 }
 
@@ -189,11 +190,11 @@ function opaquePredicate(): string {
   const n = Math.floor(Math.random() * 100) + 1;
   const pick = Math.floor(Math.random() * 4);
   switch (pick) {
-    case 0: return `if(typeof ${v}==='undefined'||(0x${(n*n).toString(16)})===(0x${(n*n).toString(16)})){}`;
-    case 1: { const a = Math.floor(Math.random()*50)+2, b = Math.floor(Math.random()*50)+2; return `if((0x${(a*b).toString(16)})===(0x${(a*b).toString(16)})){}`; }
-    case 2: return `var ${v}=[];if(${v}['length']===(0x0)){}`;
-    case 3: return `var ${v}=(0x${n.toString(16)});while((0x0)>(0x1)){${v}++;}`;
-    default: return `if((0x1)===(0x1)){}`;
+    case 0: return `if(typeof ${v}==='undefined'||0x${(n*n).toString(16)}===0x${(n*n).toString(16)}){}`;
+    case 1: { const a = Math.floor(Math.random()*50)+2, b = Math.floor(Math.random()*50)+2; return `if(0x${(a*b).toString(16)}===0x${(a*b).toString(16)}){}`; }
+    case 2: return `var ${v}=[];if(${v}['length']===0x0){}`;
+    case 3: return `var ${v}=0x${n.toString(16)};while(0x0>0x1){${v}++;}`;
+    default: return `if(0x1===0x1){}`;
   }
 }
 
@@ -251,7 +252,7 @@ function obfuscateNumbers(code: string): string {
       const n = parseInt(num, 10);
       if (isNaN(n) || n > 0xffff || num.length > 5) { out += num; continue; }
 
-      out += `(0x${n.toString(16)})`;
+      out += `0x${n.toString(16)}`;
       continue;
     }
     out += ch; i++;
@@ -490,11 +491,11 @@ function flattenControlFlow(code: string): string {
   const cases = ord.map((orig, shuf) => {
     const next = orig === stmts.length - 1
       ? `${wv}=false`
-      : `${sv}=(0x${rev[orig + 1].toString(16)})`;
-    return `case (0x${shuf.toString(16)}):${stmts[orig]};${next};break`;
+      : `${sv}=0x${rev[orig + 1].toString(16)}`;
+    return `case 0x${shuf.toString(16)}:${stmts[orig]};${next};break`;
   }).join(';');
 
-  const flat = `var ${sv}=(0x${rev[0].toString(16)}),${wv}=true;while(${wv}){switch(${sv}){${cases};}}`;
+  const flat = `var ${sv}=0x${rev[0].toString(16)},${wv}=true;while(${wv}){switch(${sv}){${cases};}}`;
   return funcDecls.length > 0 ? funcDecls.join(';') + ';' + flat : flat;
 }
 
