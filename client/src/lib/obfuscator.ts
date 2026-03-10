@@ -160,6 +160,9 @@ function obfuscateNumbers(code: string): string {
       while (i < code.length && /\d/.test(code[i])) { num += code[i]; i++; }
       const nextChar = i < code.length ? code[i] : '';
       if (/[a-zA-Z_$.]/.test(nextChar)) { result += num; continue; }
+      let lookahead = i;
+      while (lookahead < code.length && /\s/.test(code[lookahead])) lookahead++;
+      if (lookahead < code.length && code[lookahead] === '.') { result += num; continue; }
       const n = parseInt(num, 10);
       if (n > 65535 || num.length > 5) { result += num; continue; }
       if (n === 0) { result += '0x0'; continue; }
